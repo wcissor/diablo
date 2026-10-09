@@ -1,131 +1,123 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CAPS } from "./budget";
-import { draftPlan, validatePlan } from "./draft";
+import { DEFAULT_QUESTION, draftPlan, validatePlan } from "./draft";
 import { LiveError } from "./errors";
 import { FakeLLM } from "./llm/fake";
 import { GOOD_PLAN } from "./test-fixtures";
 
-const clone = () => structuredClone(GOOD_PLAN) as typeof GOOD_PLAN & Record<string, unknown>;
+type Loose = Record<string, unknown> & { arms: Record<string, unknown>[]; cases: Record<string, unknown>[]; hypotheses: Record<string, unknown>[]; experiments: Record<string, unknown>[] };
+const clone = () => structuredClone(GOOD_PLAN) as unknown as Loose;
+const Q = "Which change moved accuracy?";
 const problemsOf = (v: unknown) => {
-  const r = validatePlan(v, DEFAULT_CAPS);
+  const r = validatePlan(v, DEFAULT_CAPS, Q);
   return r.ok ? [] : r.problems;
 };
 
-describe("plan validation: closed vocabulary from the registry", () => {
-  it("accepts a valid plan and numbers its experiments", () => {
-    const r = validatePlan(GOOD_PLAN, DEFAULT_CAPS);
+describe("plan validation: a study built from the researcher's question", () => {
+  it("accepts a valid plan, numbers its cases and experiments, and keeps the question", () => {
+    const r = validatePlan(GOOD_PLAN, DEFAULT_CAPS, Q);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.plan.experiments.map((e) => [e.id, e.hypothesisId, e.n])).toEqual([
-      ["E1", "H1", 40],
-      ["E2", "H2", 40],
+    expect(r.plan.study.question).toBe(Q);
+    expect(r.plan.study.cases[0].id).toBe("C01");
+    expect(r.plan.experiments.map((e) => [e.id, e.hypothesisId, e.control, e.treatment, e.n])).toEqual([
+      ["E1", "H1", "A", "B", 24],
+      ["E2", "H2", "A", "C", 24],
     ]);
     expect(r.plan.experiments[0].rationale).toBe("Isolates the prompt.");
     expect(r.plan.experiments[1].rationale).toBeNull();
   });
 
-  it("normalises numeric temperatures to the vocabulary, but only exact matches", () => {
+  it("only allows the closed check kinds", () => {
     const p = clone();
-    (p.experiments[1].treatment as Record<string, unknown>).temperature = 1;
-    (p.experiments[0].control as Record<string, unknown>).temperature = 0.2;
-    expect(problemsOf(p)).toEqual([]);
-    (p.experiments[1].treatment as Record<string, unknown>).temperature = 0.7;
-    expect(problemsOf(p).join()).toMatch(/experiments\.1\.treatment\.temperature/);
+    p.cases[0].check = { kind: "llm_judge", rubric: "is it good" };
+    expect(problemsOf(p).join()).toMatch(/cases\.0\.check/);
   });
 
-  it("rejects a factor that is not in the registry", () => {
+  it("experiments must compare two different arms of the study", () => {
     const p = clone();
-    (p.experiments[0].treatment as Record<string, unknown>).max_tokens = 64;
-    expect(problemsOf(p).join()).toMatch(/experiments\.0\.treatment/);
-  });
-
-  it("rejects a value that is not in the registry", () => {
-    const p = clone();
-    p.experiments[0].treatment.system_prompt = "medium";
-    expect(problemsOf(p).join()).toMatch(/experiments\.0\.treatment\.system_prompt/);
-  });
-
-  it("enforces the budget on items per arm and the number of experiments", () => {
-    const p = clone();
-    p.experiments[0].items_per_arm = 500;
-    expect(problemsOf(p).join()).toMatch(/items_per_arm/);
+    p.experiments[0].treatment = "Z";
+    expect(problemsOf(p).join()).toMatch(/No arm Z/);
     const q = clone();
-    q.experiments[0].items_per_arm = 3;
-    expect(problemsOf(q).join()).toMatch(/items_per_arm/);
+    q.experiments[0].treatment = "A";
+    expect(problemsOf(q).join()).toMatch(/different arms/);
+  });
+
+  it("enforces the budget on cases, arms and temperature", () => {
+    const p = clone();
+    p.cases = p.cases.slice(0, 3);
+    expect(problemsOf(p).join()).toMatch(/at least/);
+    const q = clone();
+    q.cases = [...q.cases, ...q.cases.map((c, i) => ({ ...c, prompt: `${c.prompt} (${i})` }))];
+    expect(problemsOf(q).join()).toMatch(/at most/);
     const r = clone();
-    r.experiments.push({ ...r.experiments[0], title: "Both", treatment: { system_prompt: "short", temperature: "1.0" } });
-    expect(problemsOf(r).join()).toMatch(/experiments/);
+    r.arms[1].temperature = 1.7;
+    expect(problemsOf(r).join()).toMatch(/arms\.1\.temperature/);
   });
 
   it("needs at least two hypotheses, one of them competing, each tested", () => {
-    const one = clone();
-    one.hypotheses = [one.hypotheses[0]];
-    one.experiments[1].hypothesis = "H1";
-    expect(problemsOf(one).join()).toMatch(/at least two/);
-    const none = clone();
-    none.hypotheses[1].competing = false;
-    expect(problemsOf(none).join()).toMatch(/competing/);
-    const untested = clone();
-    untested.experiments[1].hypothesis = "H1";
-    expect(problemsOf(untested).join()).toMatch(/H2 is not tested/);
-    const dangling = clone();
-    dangling.experiments[1].hypothesis = "H7";
-    expect(problemsOf(dangling).join()).toMatch(/No hypothesis H7/);
-  });
-
-  it("rejects identical arms and duplicate experiments", () => {
-    const same = clone();
-    same.experiments[0].treatment = { ...same.experiments[0].control };
-    expect(problemsOf(same).join()).toMatch(/identical/);
-    const dup = clone();
-    dup.experiments[1] = { ...dup.experiments[0], hypothesis: "H2" };
-    expect(problemsOf(dup).join()).toMatch(/Duplicate/);
-  });
-
-  it("rejects numeric effect sizes in hypotheses", () => {
     const p = clone();
-    p.hypotheses[0].text = "The short prompt costs about 30% accuracy.";
-    expect(problemsOf(p).join()).toMatch(/direction only/);
+    p.hypotheses = p.hypotheses.map((h) => ({ ...h, competing: false }));
+    expect(problemsOf(p).join()).toMatch(/competing/);
+    const q = clone();
+    q.experiments = [q.experiments[0], { ...q.experiments[1], hypothesis: "H1" }];
+    expect(problemsOf(q).join()).toMatch(/H2 is not tested/);
+  });
+
+  it("rejects numeric effect sizes in hypotheses and duplicate cases", () => {
+    const p = clone();
+    p.hypotheses[0].text = "The short prompt lowers accuracy by 30%.";
+    expect(problemsOf(p).join()).toMatch(/hypotheses\.0\.text/);
+    const q = clone();
+    q.cases[1].prompt = q.cases[0].prompt;
+    expect(problemsOf(q).join()).toMatch(/Duplicate case/);
   });
 });
 
 describe("draft loop: validate and repair, never invent", () => {
-  it("returns the first valid plan", async () => {
+  it("returns the first valid plan and sends the researcher's question as quoted data", async () => {
     const llm = new FakeLLM("reasoner", [JSON.stringify(GOOD_PLAN)]);
     const attempts: boolean[] = [];
-    const { plan, attempts: n } = await draftPlan({ llm, caps: DEFAULT_CAPS, onAttempt: (_, ok) => attempts.push(ok) });
+    const { plan, attempts: n } = await draftPlan({ llm, caps: DEFAULT_CAPS, target: "fake-target", objective: "Why do plastics decompose slowly?", onAttempt: (_, ok) => attempts.push(ok) });
     expect(n).toBe(1);
     expect(plan.hypotheses).toHaveLength(2);
+    expect(plan.study.question).toBe("Why do plastics decompose slowly?");
     expect(attempts).toEqual([true]);
     expect(llm.calls[0].json).toBe(true);
-    expect(llm.calls[0].system).toContain("closed vocabulary");
+    expect(llm.calls[0].system).toContain("fake-target");
+    expect(llm.calls[0].messages[0].content).toContain('"""Why do plastics decompose slowly?"""');
+  });
+
+  it("uses the default question when none is given", async () => {
+    const llm = new FakeLLM("reasoner", [JSON.stringify(GOOD_PLAN)]);
+    const { plan } = await draftPlan({ llm, caps: DEFAULT_CAPS, target: "t" });
+    expect(plan.study.question).toBe(DEFAULT_QUESTION);
   });
 
   it("feeds the validator's problems back and accepts the repaired plan", async () => {
     const bad = clone();
-    bad.experiments[0].treatment.system_prompt = "medium";
+    bad.experiments[0].treatment = "Z";
     const llm = new FakeLLM("reasoner", ["not json at all", JSON.stringify(bad), "```json\n" + JSON.stringify(GOOD_PLAN) + "\n```"]);
-    const seen: [number, boolean, string[]][] = [];
-    const { attempts } = await draftPlan({ llm, caps: DEFAULT_CAPS, onAttempt: (a, ok, p) => seen.push([a, ok, p]) });
+    const seen: [number, boolean][] = [];
+    const { attempts } = await draftPlan({ llm, caps: DEFAULT_CAPS, target: "t", onAttempt: (a, ok) => seen.push([a, ok]) });
     expect(attempts).toBe(3);
-    expect(seen.map(([a, ok]) => [a, ok])).toEqual([
+    expect(seen).toEqual([
       [1, false],
       [2, false],
       [3, true],
     ]);
-    // The second request carries the first reply and why it was rejected.
     const second = llm.calls[1].messages;
     expect(second.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
     expect(second[1].content).toBe("not json at all");
     expect(second[2].content).toMatch(/did not contain a JSON object/);
-    expect(llm.calls[2].messages.at(-1)!.content).toMatch(/experiments\.0\.treatment\.system_prompt/);
+    expect(llm.calls[2].messages.at(-1)!.content).toMatch(/No arm Z/);
   });
 
   it("fails clearly after two repairs, without inventing a plan", async () => {
     const llm = new FakeLLM("reasoner", ["{}", "{}", "{}", JSON.stringify(GOOD_PLAN)]);
-    const err = await draftPlan({ llm, caps: DEFAULT_CAPS }).catch((e) => e);
+    const err = await draftPlan({ llm, caps: DEFAULT_CAPS, target: "t" }).catch((e) => e);
     expect(err).toBeInstanceOf(LiveError);
     expect(err.code).toBe("draft-invalid");
-    expect(llm.calls).toHaveLength(3); // the fourth (valid) reply is never requested
+    expect(llm.calls).toHaveLength(3);
   });
 });

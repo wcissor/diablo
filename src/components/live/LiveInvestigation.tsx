@@ -1,50 +1,56 @@
 "use client";
 
-import { useEffect, useReducer, useRef } from "react";
-import { Check, ExternalLink, KeyRound, Play, Square, X } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useReducer, useRef, useState, type ReactNode } from "react";
+import { ArrowUp, Check, ChevronDown, FlaskConical, KeyRound, Square, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { Progress, SectionTitle } from "@/components/ui/primitives";
+import { Progress } from "@/components/ui/primitives";
 import { Mono } from "@/components/research/common";
 import { cn } from "@/lib/cn";
 import { useNow } from "@/lib/data";
 import { count } from "@/lib/format";
-import { DATASET } from "@/lib/live/dataset";
 import { ERROR_HINT } from "@/lib/live/llm/types";
-import { INITIAL_VIEW, liveReducer, readEvents, type Attempt, type LiveView, type StageState } from "@/lib/live/progress";
-import { DEFAULT_MODELS } from "@/lib/live/providers";
-import { armLabel, changedFactors, FACTORS, QUESTION, SYSTEM_PROMPTS, VERSIONS } from "@/lib/live/registry";
+import { INITIAL_VIEW, liveReducer, readEvents, type LiveView, type StageState } from "@/lib/live/progress";
 import type { LivePublicConfig, LiveStage, Plan } from "@/lib/live/types";
 import { LiveResults } from "./LiveResults";
+import { StudyDesign } from "./StudyDesign";
 
-const STAGE_COPY: Record<LiveStage, { label: string; who: "model" | "code"; text: string }> = {
-  draft: { label: "Plan", who: "model", text: "The reasoning model proposes hypotheses and experiments; code checks them against the registry." },
-  run: { label: "Run", who: "code", text: "Code calls the target on the same seeded items in both arms and scores every answer." },
-  analyze: { label: "Analyse", who: "code", text: "Code computes the exact McNemar test, a paired bootstrap interval and the Holm correction." },
-  interpret: { label: "Interpret", who: "model", text: "The model explains the result citing only the fact table; a checker verifies every number." },
-};
+/** A model id as people say it. */
+export function modelName(id: string | null | undefined): string {
+  if (!id) return "the investigator";
+  const m = /^(claude|gemini)-(.+)$/i.exec(id);
+  if (!m) return id;
+  const rest = m[2].replace(/-(\d+)-(\d+)(?=$|-)/, " $1.$2").replace(/-/g, " ");
+  return `${m[1][0].toUpperCase()}${m[1].slice(1)} ${rest.replace(/\b[a-z]/g, (c) => c.toUpperCase())}`;
+}
 
-const seconds = (ms: number) => `${Math.round(ms / 1000)} s`;
-const minutes = (ms: number) => (ms >= 60_000 && ms % 60_000 === 0 ? `${ms / 60_000} min` : seconds(ms));
+const EXAMPLES = [
+  "Does asking for a one-word answer make the assistant worse at multi-step arithmetic?",
+  "Does a strict “cite your sources” system prompt reduce made-up facts about world capitals?",
+  "Is the assistant more likely to fall for common science myths at a higher temperature?",
+];
 
 export function LiveInvestigation({ config }: { config: LivePublicConfig }) {
+  const router = useRouter();
   const [view, dispatch] = useReducer(liveReducer, INITIAL_VIEW);
+  const asked = useSearchParams().get("q")?.trim().slice(0, 400) || null;
+  const [question, setQuestion] = useState<string | null>(asked);
   const abortRef = useRef<AbortController | null>(null);
 
   // Leaving the page cancels a run in progress: no model calls nobody will see.
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  // Arriving from Home with a question (?q=...) starts the run straight away.
-  const autoStarted = useRef(false);
+  // Arriving with a question (?q=...) starts the investigation straight away.
+  // The cleanup cancels it, so a remount (Strict Mode) starts one fresh run.
   useEffect(() => {
-    if (autoStarted.current || !config.configured) return;
-    const q = new URLSearchParams(window.location.search).get("q");
-    if (!q) return;
-    autoStarted.current = true;
-    void start();
-     
+    if (!config.configured || !asked) return;
+    void start(asked);
+    return () => abortRef.current?.abort();
+    // Only the question the page was opened with starts by itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config.configured]);
 
-  async function start() {
+  async function start(objective: string) {
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -53,22 +59,22 @@ export function LiveInvestigation({ config }: { config: LivePublicConfig }) {
       const res = await fetch("/api/live/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(runRequest()),
+        body: JSON.stringify({ objective }),
         signal: ctrl.signal,
         cache: "no-store",
       });
       if (!res.ok || !res.body) {
         const body = (await res.json().catch(() => null)) as { message?: string } | null;
         const message =
-          res.status === 401
-            ? "Your session has ended. Reload the page to sign in again."
-            : (body?.message ?? `The server answered with status ${res.status}.`);
+          res.status === 401 ? "Your session has ended. Reload the page to sign in again." : (body?.message ?? `The server answered with status ${res.status}.`);
         dispatch({ type: "http-error", status: res.status, message });
         return;
       }
       await readEvents(res.body, dispatch);
       dispatch({ type: "stream-ended" });
     } catch {
+      // A run replaced by a newer one says nothing; one the user stopped says so.
+      if (abortRef.current !== ctrl) return;
       if (ctrl.signal.aborted) dispatch({ type: "cancelled" });
       else dispatch({ type: "http-error", status: 0, message: "The server could not be reached. Check your connection and try again." });
     } finally {
@@ -76,145 +82,261 @@ export function LiveInvestigation({ config }: { config: LivePublicConfig }) {
     }
   }
 
+  const ask = (q: string) => {
+    const text = q.trim().slice(0, 400);
+    if (!text) return;
+    setQuestion(text);
+    router.replace(`/live?q=${encodeURIComponent(text)}`, { scroll: false });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    void start(text);
+  };
+
+  if (!config.configured) return <NotConfigured config={config} />;
+
   const busy = view.status === "starting" || view.status === "running";
+  const investigator = modelName(view.models?.reasoning ?? config.reasoningModel);
+  const target = view.models?.target ?? config.targetModel;
 
-  return (
-    <div className="space-y-10">
-      <Scenario />
-      <section aria-labelledby="run-h">
-        <SectionTitle id="run-h">Run</SectionTitle>
-        {config.configured ? (
-          <div className="mt-2 rounded-[10px] border border-line bg-surface p-4 sm:p-5">
-            <Budget config={config} />
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              {busy ? (
-                <Button variant="secondary" icon={<Square strokeWidth={1.5} />} onClick={() => abortRef.current?.abort()}>
-                  Cancel
-                </Button>
-              ) : (
-                <Button variant="primary" icon={<Play strokeWidth={1.5} />} onClick={start}>
-                  {view.status === "idle" ? "Run live investigation" : "Run again"}
-                </Button>
-              )}
-              {busy && <Elapsed since={view.startedAt} />}
-            </div>
-            {view.status !== "idle" && <Stages view={view} />}
-            {view.error && <ErrorNote view={view} />}
-          </div>
-        ) : (
-          <NotConfigured config={config} />
-        )}
-        <Announcer view={view} />
-      </section>
-      {view.plan && !view.result && <PlanView plan={view.plan} reasoning={view.models?.reasoning ?? config.reasoningModel} />}
-      {view.result && <LiveResults result={view.result} />}
-      <Roles config={config} />
-    </div>
-  );
-}
-
-/* ── The scenario ─────────────────────────────────────────────── */
-
-function Scenario() {
-  return (
-    <section aria-labelledby="scenario-h" className="rise">
-      <SectionTitle id="scenario-h" className="text-ink-3">
-        The planted change
-      </SectionTitle>
-      <p className="mt-1.5 max-w-[760px] text-[19px] leading-[28px] tracking-[-0.01em] text-ink">{QUESTION}</p>
-      <ul className="mt-4 grid gap-3 md:grid-cols-2" aria-label="Helper versions">
-        {VERSIONS.map((v, i) => {
-          const changed = i === 0 ? [] : changedFactors(VERSIONS[0].settings, v.settings);
-          return (
-            <li key={v.id} className="rounded-[10px] border border-line bg-surface p-4">
-              <div className="flex items-baseline justify-between gap-3">
-                <span className="text-[15px] font-medium text-ink">{v.name}</span>
-                {i > 0 && <span className="text-[12px] text-accent-text">{changed.length} factors changed</span>}
-              </div>
-              <dl className="mt-3 space-y-2.5 text-[13px]">
-                <div>
-                  <dt className={cn("text-ink-3", changed.includes("system_prompt") && "text-accent-text")}>System prompt</dt>
-                  <dd className="mt-0.5 whitespace-pre-line rounded-[6px] bg-subtle px-2.5 py-2 font-mono text-[12px] leading-[18px] text-ink-2">
-                    {SYSTEM_PROMPTS[v.settings.system_prompt]}
-                  </dd>
-                </div>
-                <div className="flex items-baseline gap-2">
-                  <dt className={cn("text-ink-3", changed.includes("temperature") && "text-accent-text")}>Temperature</dt>
-                  <dd>
-                    <Mono className="text-ink">{v.settings.temperature}</Mono>
-                  </dd>
-                </div>
-              </dl>
+  if (!question) {
+    return (
+      <div className="mx-auto max-w-[760px] pt-[12vh]">
+        <h1 className="text-center text-[28px] font-medium tracking-[-0.02em] text-ink">What should Diablo investigate?</h1>
+        <p className="mt-2 text-center text-ink-2">
+          Ask about how an AI behaves. {investigator} designs the study, code runs it on {modelName(target)} and computes every number.
+        </p>
+        <Composer onSubmit={ask} autoFocus className="mt-8" placeholder="Ask a research question about AI behaviour…" />
+        <ul className="mt-4 flex flex-col gap-2">
+          {EXAMPLES.map((e) => (
+            <li key={e}>
+              <button
+                type="button"
+                onClick={() => ask(e)}
+                className="w-full rounded-[10px] border border-line px-4 py-2.5 text-left text-[14px] text-ink-2 transition-colors hover:border-line-strong hover:bg-subtle hover:text-ink"
+              >
+                {e}
+              </button>
             </li>
-          );
-        })}
-      </ul>
-      <p className="mt-3 max-w-[760px] text-[13px] text-ink-2">
-        Items: {DATASET.description} Accuracy is scored by code: the integer on the last “Answer:” line, or else the last integer in the reply, must equal the exact answer. Every experiment is
-        paired, so both arms answer the same items.
-      </p>
-    </section>
-  );
-}
-
-/* ── Who does what ────────────────────────────────────────────── */
-
-function Roles({ config }: { config: LivePublicConfig }) {
-  const reasoning = config.reasoningModel;
-  return (
-    <section aria-labelledby="roles-h">
-      <SectionTitle id="roles-h">The AI reasons. The system measures.</SectionTitle>
-      <div className="mt-2 grid gap-3 md:grid-cols-2">
-        <div className="rounded-[10px] border border-line bg-surface p-4">
-          <div className="text-[13px] text-ink-3">
-            Reasoning model{" "}
-            {reasoning ? (
-              <Mono className="text-ink-2">{reasoning}</Mono>
-            ) : (
-              <>
-                (default <Mono className="text-ink-2">{DEFAULT_MODELS.anthropic.reasoning}</Mono>)
-              </>
-            )}
-          </div>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-ink-2 marker:text-ink-3">
-            <li>Proposes competing hypotheses and the experiments that test them, as JSON.</li>
-            <li>Writes the conclusion with placeholders such as {"{{F3}}"}; it cannot type a number.</li>
-          </ul>
-        </div>
-        <div className="rounded-[10px] border border-line bg-surface p-4">
-          <div className="text-[13px] text-ink-3">Code</div>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-ink-2 marker:text-ink-3">
-            <li>Rejects any plan outside the registry: only the {Object.keys(FACTORS).length} factors, only their values, within the budget.</li>
-            <li>Calls the target, scores every answer and counts discordant pairs.</li>
-            <li>Computes every rate, interval and p-value, and checks each number in the conclusion.</li>
-          </ul>
-        </div>
+          ))}
+        </ul>
       </div>
-    </section>
-  );
-}
+    );
+  }
 
-/* ── Budget and limits, before anyone presses Run ─────────────── */
-
-function Budget({ config }: { config: LivePublicConfig }) {
-  const { estimate, caps, limits } = config;
   return (
-    <div className="space-y-2 text-[13px] text-ink-2">
-      <p>
-        <span className="text-ink">Models:</span> reasoning <Mono className="text-ink">{config.reasoningModel}</Mono>, target{" "}
-        <Mono className="text-ink">{config.targetModel}</Mono> via {config.providerLabel}.
-      </p>
-      <p>
-        <span className="text-ink">Up to {count(estimate.total)} model calls:</span> {estimate.draft} to plan, {count(estimate.target)} to run the target (
-        {caps.maxExperiments} experiments × 2 arms × {caps.maxItemsPerArm} items at most), {estimate.interpret} to write the conclusion. Usually fewer:
-        an arm two experiments share is called once per item.
-      </p>
-      <p className="text-ink-3">
-        The run stops starting calls after {minutes(caps.runDeadlineMs)} and analyses the pairs it finished. One run per session at a time, then a{" "}
-        {seconds(limits.cooldownMs)} pause; this server allows {count(limits.dailyCallCap)} model calls a day.
-      </p>
+    <div className="mx-auto max-w-[920px] pb-32">
+      <header className="rise">
+        <div className="flex items-center gap-2 text-[13px] text-ink-3">
+          <FlaskConical className="size-4" strokeWidth={1.5} aria-hidden />
+          Investigation
+        </div>
+        <h1 className="mt-2 text-[26px] font-medium leading-[34px] tracking-[-0.02em] text-ink sm:text-[30px] sm:leading-[38px]">{question}</h1>
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px] text-ink-3">
+          <span>
+            Investigator <span className="text-ink-2">{investigator}</span>
+          </span>
+          <span>
+            AI under test <Mono className="text-ink-2">{target}</Mono>
+          </span>
+          {busy && <Elapsed since={view.startedAt} />}
+          {busy && (
+            <button
+              type="button"
+              onClick={() => abortRef.current?.abort()}
+              className="inline-flex items-center gap-1.5 rounded-full border border-line px-2.5 py-0.5 text-ink-2 hover:border-line-strong hover:text-ink"
+            >
+              <Square className="size-3" strokeWidth={2} aria-hidden /> Stop
+            </button>
+          )}
+        </div>
+      </header>
+
+      <Activity view={view} target={target} investigator={investigator} />
+      {view.error && <ErrorNote view={view} onRetry={() => ask(question)} />}
+      {view.result && <LiveResults result={view.result} />}
+      <Announcer view={view} />
+
+      {!busy && (
+        <div className="sticky bottom-0 z-20 -mb-32 mt-10 bg-gradient-to-t from-canvas via-canvas/95 to-transparent pb-5 pt-8">
+          <Composer onSubmit={ask} placeholder="Ask another question…" />
+        </div>
+      )}
     </div>
   );
+}
+
+/* ── Composer ─────────────────────────────────────────────────── */
+
+function Composer({ onSubmit, placeholder, autoFocus, className }: { onSubmit: (q: string) => void; placeholder: string; autoFocus?: boolean; className?: string }) {
+  const [text, setText] = useState("");
+  const send = () => {
+    if (!text.trim()) return;
+    onSubmit(text);
+    setText("");
+  };
+  return (
+    <form
+      className={cn("flex items-end gap-2 rounded-[16px] border border-line-strong bg-surface p-2 pl-4 shadow-sm focus-within:border-ink-3", className)}
+      onSubmit={(e) => {
+        e.preventDefault();
+        send();
+      }}
+    >
+      <label htmlFor="live-q" className="sr-only">
+        Research question
+      </label>
+      <textarea
+        id="live-q"
+        rows={1}
+        autoFocus={autoFocus}
+        value={text}
+        maxLength={400}
+        placeholder={placeholder}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+            e.preventDefault();
+            send();
+          }
+        }}
+        className="max-h-40 min-h-[40px] flex-1 resize-none bg-transparent py-2 text-[15px] text-ink outline-none [field-sizing:content] placeholder:text-ink-3"
+      />
+      <button
+        type="submit"
+        disabled={!text.trim()}
+        aria-label="Investigate"
+        className="grid size-9 shrink-0 place-items-center rounded-full bg-ink text-canvas transition-opacity disabled:opacity-30"
+      >
+        <ArrowUp className="size-4" strokeWidth={2} aria-hidden />
+      </button>
+    </form>
+  );
+}
+
+/* ── Activity: what the investigator is doing, step by step ───── */
+
+function Activity({ view, target, investigator }: { view: LiveView; target: string | null; investigator: string }) {
+  const s = view.stages;
+  const plan = view.plan;
+  const p = view.progress;
+  const done = view.status === "done";
+  const [open, setOpen] = useState(true);
+  // Fold the activity once the answer is in; it stays one click away.
+  const [prevDone, setPrevDone] = useState(done);
+  if (done !== prevDone) {
+    setPrevDone(done);
+    if (done) setOpen(false);
+  }
+
+  const lastDraft = view.draftAttempts[view.draftAttempts.length - 1];
+  const lastInterp = view.interpretAttempts[view.interpretAttempts.length - 1];
+  const steps: { stage: LiveStage; title: string; detail: ReactNode }[] = [
+    {
+      stage: "draft",
+      title: plan ? `Designed the study: ${plan.study.title}` : "Designing a study for your question",
+      detail: plan ? (
+        <StudySummary plan={plan} />
+      ) : (
+        <span>
+          {investigator} is turning the question into test cases, setups to compare and competing hypotheses.
+          {lastDraft && !lastDraft.ok && ` Attempt ${lastDraft.attempt} was rejected by the validator; revising.`}
+        </span>
+      ),
+    },
+    {
+      stage: "run",
+      title: p ? `Ran ${count(p.done)} of ${count(p.total)} replies on ${target}` : `Running the study on ${target ?? "the AI under test"}`,
+      detail: p ? (
+        <div className="max-w-[520px]">
+          <Progress value={p.total ? p.done / p.total : 0} label="Replies finished" />
+          <p className="mt-1.5 text-[12px] text-ink-3">
+            {count(p.scored)} scored by code{p.failed ? ` · ${count(p.failed)} failed` : ""}
+            {p.cancelled ? ` · ${count(p.cancelled)} not run` : ""}. Every setup answers the same cases, so each comparison is paired.
+          </p>
+        </div>
+      ) : (
+        <span>Code sends every case to every setup and checks each reply.</span>
+      ),
+    },
+    { stage: "analyze", title: "Computed the statistics", detail: <span>Exact McNemar test, paired bootstrap interval and Holm correction, all in code.</span> },
+    {
+      stage: "interpret",
+      title: s.interpret === "done" ? "Wrote the answer · every number checked" : "Writing the answer",
+      detail: (
+        <span>
+          {investigator} explains the result citing only numbers computed by code.
+          {lastInterp && !lastInterp.ok && ` Attempt ${lastInterp.attempt} was rejected by the number checker.`}
+        </span>
+      ),
+    },
+  ];
+  const visible = steps.filter((st) => s[st.stage] !== "pending" || (st.stage === "draft" && view.status === "starting"));
+
+  return (
+    <section aria-label="Activity" className="mt-8 rounded-[14px] border border-line bg-surface">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left">
+        <span className="flex items-center gap-2 text-[14px] font-medium text-ink">
+          {done ? <Check className="size-4 text-ok" strokeWidth={2} aria-hidden /> : view.status === "running" || view.status === "starting" ? <Spinner /> : null}
+          {done ? "Investigation complete" : view.status === "failed" ? "Investigation stopped" : view.status === "cancelled" ? "Stopped" : "Investigating"}
+          {done && view.usage && <span className="font-normal text-ink-3">· {count(view.usage.calls)} model calls</span>}
+        </span>
+        <ChevronDown className={cn("size-4 text-ink-3 transition-transform", open && "rotate-180")} strokeWidth={1.5} aria-hidden />
+      </button>
+      {open && (
+        <ol className="border-t border-line px-4 py-2">
+          {visible.map((st, i) => (
+            <li key={st.stage} className="relative flex gap-3 py-2.5">
+              {i < visible.length - 1 && <span aria-hidden className="absolute left-[9px] top-8 h-[calc(100%-20px)] w-px bg-line" />}
+              <span className="grid size-5 shrink-0 place-items-center pt-0.5">
+                <StepIcon state={s[st.stage] === "pending" ? "active" : s[st.stage]} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className={cn("text-[14px]", s[st.stage] === "active" || s[st.stage] === "pending" ? "text-ink" : "text-ink-2")}>{st.title}</div>
+                <div className="mt-1 text-[13px] text-ink-2">{st.detail}</div>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  );
+}
+
+function StudySummary({ plan }: { plan: Plan }) {
+  const { study } = plan;
+  return (
+    <div className="space-y-2">
+      <p>{study.subject}</p>
+      <div className="flex flex-wrap gap-1.5">
+        {study.arms.map((a) => (
+          <span key={a.id} className="rounded-full bg-subtle px-2.5 py-0.5 text-[12px] text-ink-2">
+            <Mono className="text-ink-3">{a.id}</Mono> {a.label}
+          </span>
+        ))}
+        <span className="rounded-full bg-subtle px-2.5 py-0.5 text-[12px] text-ink-2">{study.cases.length} test cases</span>
+      </div>
+      <ul className="space-y-1">
+        {plan.hypotheses.map((h) => (
+          <li key={h.id}>
+            <Mono className="text-ink-3">{h.id}</Mono> {h.text}
+          </li>
+        ))}
+      </ul>
+      <details>
+        <summary className="cursor-pointer text-[12px] text-ink-3 hover:text-ink-2">See the setups and cases</summary>
+        <StudyDesign study={study} />
+      </details>
+    </div>
+  );
+}
+
+function Spinner() {
+  return <span aria-hidden className="block size-3.5 animate-spin rounded-full border-2 border-line-strong border-t-accent-text" />;
+}
+
+function StepIcon({ state }: { state: StageState }) {
+  if (state === "done") return <Check className="size-4 text-ok" strokeWidth={2} aria-hidden />;
+  if (state === "failed") return <X className="size-4 text-bad" strokeWidth={2} aria-hidden />;
+  return <Spinner />;
 }
 
 function Elapsed({ since }: { since: number | null }) {
@@ -222,111 +344,46 @@ function Elapsed({ since }: { since: number | null }) {
   if (!since || !now) return null;
   const s = Math.max(0, Math.floor((now - since) / 1000));
   return (
-    <span className="font-mono text-[13px] text-ink-3 tabular" aria-label={`Elapsed ${s} seconds`}>
+    <span className="font-mono tabular" aria-label={`Elapsed ${s} seconds`}>
       {Math.floor(s / 60)}:{String(s % 60).padStart(2, "0")}
     </span>
   );
 }
 
-/* ── Stages ───────────────────────────────────────────────────── */
-
-function StageIcon({ state }: { state: StageState }) {
-  if (state === "done") return <Check className="size-4 text-ok" strokeWidth={2} aria-hidden />;
-  if (state === "failed") return <X className="size-4 text-bad" strokeWidth={2} aria-hidden />;
-  if (state === "active") return <span aria-hidden className="block size-2 rounded-full bg-accent-text running-pulse" />;
-  return <span aria-hidden className="block size-2 rounded-full border border-ink-3" />;
-}
-
-const STATE_WORD: Record<StageState, string> = { pending: "Waiting", active: "In progress", done: "Done", failed: "Stopped" };
-
-function Stages({ view }: { view: LiveView }) {
-  return (
-    <ol className="mt-5 divide-y divide-line border-y border-line" aria-label="Stages">
-      {(Object.keys(STAGE_COPY) as LiveStage[]).map((stage) => {
-        const copy = STAGE_COPY[stage];
-        const state = view.stages[stage];
-        return (
-          <li key={stage} className="flex gap-3 py-3">
-            <span className="grid size-5 shrink-0 place-items-center pt-0.5">
-              <StageIcon state={state} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-baseline gap-x-2">
-                <span className={cn("font-medium", state === "pending" ? "text-ink-3" : "text-ink")}>{copy.label}</span>
-                <span className="text-[12px] text-ink-3">
-                  {copy.who === "model" ? "model" : "code"} · <span className="sr-only">status: </span>
-                  {STATE_WORD[state]}
-                </span>
-              </div>
-              <p className="mt-0.5 text-[13px] text-ink-2">{copy.text}</p>
-              {stage === "draft" && <AttemptNotes attempts={view.draftAttempts} what="plan" />}
-              {stage === "run" && view.progress && <RunCounts view={view} />}
-              {stage === "interpret" && <AttemptNotes attempts={view.interpretAttempts} what="conclusion" />}
-            </div>
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-
-function AttemptNotes({ attempts, what }: { attempts: Attempt[]; what: "plan" | "conclusion" }) {
-  if (!attempts.length) return null;
-  return (
-    <ul className="mt-1.5 space-y-1 text-[13px]">
-      {attempts.map((a) => (
-        <li key={a.attempt} className={a.ok ? "text-ok" : "text-ink-2"}>
-          Attempt {a.attempt}: {a.ok ? (what === "plan" ? "valid plan" : "every number checked") : `rejected (${a.problems.slice(0, 2).join("; ")}${a.problems.length > 2 ? "; …" : ""})`}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function RunCounts({ view }: { view: LiveView }) {
-  const p = view.progress!;
-  const tokens = view.usage ? view.usage.byStage.run.inputTokens + view.usage.byStage.run.outputTokens : 0;
-  return (
-    <div className="mt-2 max-w-[520px]">
-      <Progress value={p.total ? p.done / p.total : 0} label="Target calls finished" />
-      <p className="mt-1.5 font-mono text-[12px] text-ink-2 tabular">
-        {count(p.done)} of {count(p.total)} calls · {count(p.scored)} scored
-        {p.failed ? ` · ${count(p.failed)} failed` : ""}
-        {p.cancelled ? ` · ${count(p.cancelled)} not run` : ""} · {count(tokens)} tokens
-      </p>
-    </div>
-  );
-}
-
-function ErrorNote({ view }: { view: LiveView }) {
+function ErrorNote({ view, onRetry }: { view: LiveView; onRetry: () => void }) {
   const e = view.error!;
   const hint = e.kind ? ERROR_HINT[e.kind] : null;
-  const title = e.code === "aborted" ? "Run cancelled" : e.code === "draft-invalid" ? "No valid plan" : "The run stopped";
+  const title = e.code === "aborted" ? "You stopped the investigation" : e.code === "draft-invalid" ? "The investigator could not design a valid study" : "The investigation stopped";
   return (
-    <div role="alert" className="mt-4 rounded-[10px] border border-line-strong bg-subtle px-4 py-3 text-[13px]">
+    <div role="alert" className="mt-4 rounded-[14px] border border-line-strong bg-subtle px-4 py-3 text-[14px]">
       <div className="font-medium text-ink">{title}</div>
-      <p className="mt-0.5 text-ink-2">{e.message}</p>
-      {hint && hint !== e.message && <p className="mt-1 text-ink-3">{hint}</p>}
-      {e.code !== "aborted" && <p className="mt-1 text-ink-3">Nothing was published: results appear only when every stage finishes.</p>}
+      {e.code !== "aborted" && <p className="mt-0.5 text-ink-2">{e.message}</p>}
+      {hint && hint !== e.message && <p className="mt-1 text-[13px] text-ink-3">{hint}</p>}
+      <div className="mt-3">
+        <Button variant="secondary" onClick={onRetry}>
+          Try again
+        </Button>
+      </div>
     </div>
   );
 }
 
 /** Says stage changes and the outcome to screen readers, not every counter tick. */
 function Announcer({ view }: { view: LiveView }) {
-  const active = (Object.keys(view.stages) as LiveStage[]).find((s) => view.stages[s] === "active");
   const text =
     view.status === "done"
-      ? "Live investigation finished. Results are below."
+      ? "Investigation finished. The answer is below."
       : view.status === "failed"
-        ? "Live investigation stopped."
+        ? "Investigation stopped."
         : view.status === "cancelled"
-          ? "Live investigation cancelled."
-          : active
-            ? `${STAGE_COPY[active].label} in progress.`
-            : view.status === "starting"
-              ? "Starting the live investigation."
-              : "";
+          ? "Investigation cancelled."
+          : view.stages.run === "active"
+            ? "Running the study."
+            : view.stages.interpret === "active"
+              ? "Writing the answer."
+              : view.status === "starting" || view.stages.draft === "active"
+                ? "Designing the study."
+                : "";
   return (
     <p className="sr-only" aria-live="polite">
       {text}
@@ -334,105 +391,24 @@ function Announcer({ view }: { view: LiveView }) {
   );
 }
 
-/* ── The plan, as soon as it is validated ─────────────────────── */
-
-function PlanView({ plan, reasoning }: { plan: Plan; reasoning: string | null }) {
-  return (
-    <section aria-labelledby="plan-h">
-      <SectionTitle id="plan-h">Plan</SectionTitle>
-      <p className="mt-0.5 text-[13px] text-ink-3">Proposed by {reasoning ?? "the reasoning model"}; validated against the registry before any call to the target.</p>
-      <ul className="mt-2 divide-y divide-line border-y border-line">
-        {plan.hypotheses.map((h) => (
-          <li key={h.id} className="flex gap-4 py-2.5">
-            <Mono className="w-8 shrink-0 pt-px text-ink-3">{h.id}</Mono>
-            <p className="text-ink">
-              {h.text}
-              {h.competing && <span className="text-ink-3"> · competing explanation</span>}
-            </p>
-          </li>
-        ))}
-        {plan.experiments.map((e) => (
-          <li key={e.id} className="flex gap-4 py-2.5">
-            <Mono className="w-8 shrink-0 pt-px text-ink-3">{e.id}</Mono>
-            <div className="min-w-0">
-              <p className="text-ink">
-                {e.title} <span className="text-ink-3">· tests {e.hypothesisId}</span>
-              </p>
-              <p className="mt-0.5 text-[13px] text-ink-2">
-                {armLabel(e.control)} → {armLabel(e.treatment)} · {e.n} items per arm, paired
-              </p>
-            </div>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-/* ── No key: say so, and how to add one ───────────────────────── */
+/* ── No key: say so ───────────────────────────────────────────── */
 
 function NotConfigured({ config }: { config: LivePublicConfig }) {
-  const claude = DEFAULT_MODELS.anthropic;
   return (
-    <div className="mt-2 rounded-[10px] border border-line bg-surface p-4 sm:p-5" aria-labelledby="nokey-h" role="region">
+    <div className="mx-auto mt-[10vh] max-w-[620px] rounded-[14px] border border-line bg-surface p-5" role="region" aria-labelledby="nokey-h">
       <div className="flex items-start gap-3">
         <span className="grid size-8 shrink-0 place-items-center rounded-[8px] bg-accent-tint text-accent-text">
           <KeyRound className="size-4" strokeWidth={1.5} aria-hidden />
         </span>
         <div className="min-w-0">
-          <h3 id="nokey-h" className="text-[15px] font-medium text-ink">
-            {config.problem ? "Live runs are switched off" : "Live runs need a model key"}
-          </h3>
-          <p className="mt-1 max-w-[680px] text-ink-2">
-            {config.problem
-              ? "The server’s model setup has a problem, so nothing runs here and nothing on this page is simulated."
-              : "This server has no model key, so nothing runs here and nothing on this page is simulated."}
-            {config.problem && <span className="mt-1 block text-ink">{config.problem}</span>}
+          <h2 id="nokey-h" className="text-[15px] font-medium text-ink">
+            Live investigations are switched off on this server
+          </h2>
+          <p className="mt-1 text-ink-2">
+            {config.problem ?? "No model key is configured. Set ANTHROPIC_API_KEY (or GEMINI_API_KEY) in the server environment and redeploy."}
           </p>
         </div>
       </div>
-      <ol className="mt-4 max-w-[720px] list-decimal space-y-2 pl-5 text-ink-2 marker:text-ink-3">
-        <li>
-          Create a Claude API key in the Claude Console, under Settings → API keys:{" "}
-          <a
-            href="https://platform.claude.com/settings/keys"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-accent-text underline underline-offset-2"
-          >
-            platform.claude.com <ExternalLink className="size-3.5" strokeWidth={1.5} aria-hidden />
-            <span className="sr-only">(opens in a new tab)</span>
-          </a>
-        </li>
-        <li>
-          On Vercel, open the project’s Settings → Environment Variables and add <Mono className="text-ink">ANTHROPIC_API_KEY</Mono>. Locally, put it in{" "}
-          <Mono className="text-ink">.env.local</Mono>. A key that is not scoped to one workspace also needs <Mono className="text-ink">ANTHROPIC_WORKSPACE_ID</Mono>.
-        </li>
-        <li>
-          Redeploy. Claude Opus 5.5 (<Mono>{claude.reasoning}</Mono>) plans and explains; Claude Haiku 4.5 (<Mono>{claude.target}</Mono>) is the system under test, because
-          it accepts the temperatures the scenario varies. <Mono className="text-ink">DIABLO_REASONING_MODEL</Mono> and{" "}
-          <Mono className="text-ink">DIABLO_TARGET_MODEL</Mono> override them.
-        </li>
-      </ol>
-      <p className="mt-3 max-w-[720px] text-[13px] text-ink-2">
-        Alternatives: <Mono className="text-ink">GEMINI_API_KEY</Mono> (Google AI Studio, with a free tier) or <Mono className="text-ink">ZAI_API_KEY</Mono> (Z.ai GLM).
-        With several keys set, Claude is used unless <Mono className="text-ink">DIABLO_LLM</Mono> says otherwise.
-      </p>
-      <p className="mt-4 text-[13px] text-ink-3">
-        With a key, one run makes at most {count(config.estimate.total)} model calls, billed to the key’s account; the run record shows what a finished run cost at
-        list price. Until then, the rest of the workspace runs on demo data.
-      </p>
-      <div className="mt-4">
-        <Button variant="primary" icon={<Play strokeWidth={1.5} />} disabledReason="No model key is configured on this server">
-          Run live investigation
-        </Button>
-      </div>
     </div>
   );
-}
-
-/** What the browser sends: the question from Home, if any. The investigator model is the system-wide setting. */
-function runRequest(): { objective?: string } {
-  const q = new URLSearchParams(window.location.search).get("q");
-  return q ? { objective: q.slice(0, 400) } : {};
 }

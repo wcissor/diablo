@@ -4,7 +4,7 @@
  * checked here again, whatever the plan says.
  *
  * - One call per (arm configuration, item): when two experiments share an arm
- *   (say both use Helper v1 as control), that arm's answers are reused.
+ *   (say both use the baseline as control), that arm's answers are reused.
  * - Calls are queued item by item, so if the deadline stops the run early the
  *   finished pairs are spread evenly over the experiments.
  * - A pair counts only when both of its calls were scored. A call that failed
@@ -17,21 +17,19 @@
  *   simply slows down, and the deadline decides how many pairs finish.
  */
 import type { LiveCaps } from "./budget";
-import type { Item } from "./dataset";
 import { LiveError } from "./errors";
 import { sleep } from "./llm/http";
 import { isCutOff, isFatal, LLMError, type LLM, type LLMErrorKind, type LLMUsage } from "./llm/types";
-import { settingsKey, targetRequest, type Settings } from "./registry";
-import { scoreReply } from "./scorer";
+import { armById, scoreCase, studyRequest, type Case, type Study } from "./study";
 import type { PlannedExperiment, RunProgress } from "./types";
 
 export interface CallOutcome {
   key: string;
-  settings: Settings;
-  item: Item;
+  settings: string;
+  item: Case;
   status: "scored" | "failed" | "cancelled";
   response: string;
-  parsed: number | null;
+  parsed: string | null;
   score: 0 | 1 | null;
   rationale: string | null;
   error: string | null;
@@ -43,7 +41,7 @@ export interface CallOutcome {
 }
 
 export interface PairOutcome {
-  item: Item;
+  item: Case;
   control: CallOutcome;
   treatment: CallOutcome;
 }
@@ -74,8 +72,9 @@ export interface RunOutcome {
 
 export interface RunOptions {
   target: LLM;
+  study: Study;
   plan: PlannedExperiment[];
-  items: Item[];
+  items: Case[];
   caps: LiveCaps;
   signal?: AbortSignal;
   now?: () => number;
@@ -84,8 +83,8 @@ export interface RunOptions {
 
 interface Task {
   key: string;
-  settings: Settings;
-  item: Item;
+  settings: string;
+  item: Case;
   /** Times this call went back in the queue after a rate limit. */
   requeues?: number;
 }
@@ -95,10 +94,10 @@ export const MAX_REQUEUES = 3;
 const DEFAULT_PAUSE_MS = 5000;
 const MAX_PAUSE_MS = 60_000;
 
-const callKey = (s: Settings, item: Item) => `${settingsKey(s)}|${item.id}`;
+const callKey = (arm: string, item: Case) => `${arm}|${item.id}`;
 
 /** The unique target calls a plan needs, in the order the runner makes them. */
-export function scheduleCalls(plan: PlannedExperiment[], items: Item[]): Task[] {
+export function scheduleCalls(plan: PlannedExperiment[], items: Case[]): Task[] {
   const maxN = Math.max(0, ...plan.map((e) => e.n));
   const tasks: Task[] = [];
   const seen = new Set<string>();
@@ -118,7 +117,7 @@ export function scheduleCalls(plan: PlannedExperiment[], items: Item[]): Task[] 
 }
 
 /** Refuses any plan outside the caps, whoever produced it. */
-export function assertWithinCaps(plan: PlannedExperiment[], items: Item[], caps: LiveCaps) {
+export function assertWithinCaps(plan: PlannedExperiment[], items: Case[], caps: LiveCaps) {
   if (plan.length === 0 || plan.length > caps.maxExperiments) {
     throw new LiveError("budget", `A run may have 1 to ${caps.maxExperiments} experiments (this plan has ${plan.length}).`);
   }
@@ -130,7 +129,7 @@ export function assertWithinCaps(plan: PlannedExperiment[], items: Item[], caps:
   }
 }
 
-export async function runPaired({ target, plan, items, caps, signal, now = Date.now, onProgress }: RunOptions): Promise<RunOutcome> {
+export async function runPaired({ target, study, plan, items, caps, signal, now = Date.now, onProgress }: RunOptions): Promise<RunOutcome> {
   assertWithinCaps(plan, items, caps);
   const tasks = scheduleCalls(plan, items);
   if (tasks.length > caps.maxExperiments * 2 * caps.maxItemsPerArm) throw new LiveError("budget", "The plan needs more calls than the budget allows.");
@@ -167,7 +166,7 @@ export async function runPaired({ target, plan, items, caps, signal, now = Date.
     }
     const t0 = now();
     try {
-      const res = await target.complete({ ...targetRequest(t.settings, t.item), signal: callSignal, timeoutMs: caps.targetTimeoutMs });
+      const res = await target.complete({ ...studyRequest(armById(study, t.settings), t.item), signal: callSignal, timeoutMs: caps.targetTimeoutMs });
       usage.inputTokens += res.usage.inputTokens;
       usage.outputTokens += res.usage.outputTokens;
       reportedModel ??= res.model;
@@ -175,7 +174,7 @@ export async function runPaired({ target, plan, items, caps, signal, now = Date.
       if (!res.text.trim() && isCutOff(res.finishReason)) {
         throw new LLMError("bad-response", "The reply was cut off by the output limit before any answer.", { provider: target.provider });
       }
-      const s = scoreReply(res.text, t.item.answer);
+      const s = scoreCase(res.text, t.item.check);
       record({
         ...base,
         status: "scored",

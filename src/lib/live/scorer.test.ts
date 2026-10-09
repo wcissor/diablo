@@ -57,3 +57,18 @@ describe("dataset: seeded multi-step arithmetic", () => {
     expect(makeItems(50).slice(0, 20)).toEqual(makeItems(20));
   });
 });
+
+describe("study checks (code, never a model)", async () => {
+  const { scoreCase } = await import("./study");
+  it("matches terms ignoring case, accents and markdown", () => {
+    expect(scoreCase("The capital is **Brasília**.", { kind: "contains_any", values: ["Brasilia"] }).score).toBe(1);
+    expect(scoreCase("It is Rio.", { kind: "contains_any", values: ["Brasilia"] }).score).toBe(0);
+    expect(scoreCase("salt and water", { kind: "contains_all", values: ["salt", "water"] }).score).toBe(1);
+    expect(scoreCase("Lightning never strikes twice", { kind: "contains_none", values: ["never strikes twice"] }).score).toBe(0);
+  });
+  it("checks numbers with a tolerance and word limits", () => {
+    expect(scoreCase("About 9.81 m/s²… so 9.8", { kind: "number", value: 9.81, tolerance: 0.05 }).score).toBe(1);
+    expect(scoreCase("Answer: 12", { kind: "number", value: 13, tolerance: 0 }).score).toBe(0);
+    expect(scoreCase("one two three", { kind: "max_words", value: 2 }).score).toBe(0);
+  });
+});

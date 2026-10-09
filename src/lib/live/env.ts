@@ -1,7 +1,6 @@
 import "server-only";
 import { CAP_LIMITS, maxCalls, MIN_ITEMS_PER_ARM, type LiveCaps } from "./budget";
 import { claudeRejectsTemperature, DEFAULT_MODELS, isProviderId, KEY_VAR, PROVIDER_LABEL, PROVIDER_ORDER } from "./providers";
-import { FACTORS } from "./registry";
 import type { AbuseLimits, LivePublicConfig, ProviderId } from "./types";
 
 /**
@@ -91,10 +90,8 @@ const WORKSPACE_ID = /^wrkspc_[A-Za-z0-9]{1,64}$/;
 /** The live scenario varies the target's temperature; a Claude model that rejects any value but 1 cannot run it. */
 function targetProblem(provider: ProviderId | null, target: string): string | null {
   if (provider !== "anthropic" || !claudeRejectsTemperature(target)) return null;
-  const varied = FACTORS.temperature.values.filter((v) => Number(v) !== 1);
-  if (varied.length === 0) return null;
   return (
-    `${target} accepts no temperature other than 1, and the live scenario runs the target at temperature ${varied.join(" and ")} too. ` +
+    `${target} accepts no temperature other than 1, and live studies set the target's temperature per arm. ` +
     `Set DIABLO_TARGET_MODEL to a Claude model that takes a temperature, such as ${DEFAULT_MODELS.anthropic.target} (the default).`
   );
 }

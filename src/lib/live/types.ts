@@ -5,7 +5,7 @@
 import type { Hypothesis, Investigation } from "@/lib/data/types";
 import type { CallEstimate, LiveCaps } from "./budget";
 import type { LLMErrorKind } from "./llm/types";
-import type { Settings } from "./registry";
+import type { Study } from "./study";
 
 export type ProviderId = "anthropic" | "gemini" | "zai";
 
@@ -55,13 +55,15 @@ export interface PlannedExperiment {
   hypothesisId: string;
   title: string;
   rationale: string | null;
-  control: Settings;
-  treatment: Settings;
-  /** Items per arm (pairs). */
+  /** Arm ids from the study. */
+  control: string;
+  treatment: string;
+  /** Cases per arm (pairs). */
   n: number;
 }
 
 export interface Plan {
+  study: Study;
   hypotheses: Hypothesis[];
   experiments: PlannedExperiment[];
 }

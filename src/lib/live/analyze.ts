@@ -9,22 +9,21 @@ import { analyzeExperiment, hashString, holmAdjusted, verdictFor, type RunResult
 import { experimentInterpretation } from "@/lib/data/interpret";
 import type { AISystem, Experiment, Investigation, Run, Sample, SessionEvent } from "@/lib/data/types";
 import { assess, type Assessment } from "@/lib/validity";
-import { DATASET, itemsHash, type Item } from "./dataset";
-import { armConfig, armLabel, helperSystems, QUESTION, TITLE, versionOf, V2, type Settings } from "./registry";
+import { armById, casesHash, type Case, type Study } from "./study";
 import type { ExperimentOutcome, RunOutcome } from "./runner";
 import type { Models, Plan } from "./types";
 
-export const METRIC = {
-  name: "Accuracy",
-  definition: "Share of items whose final integer in the reply equals the exact answer",
-  positiveLabel: "Correct",
-  negativeLabel: "Wrong or no integer",
+export const metricOf = (study: Study) => ({
+  name: "Pass rate",
+  definition: study.metric,
+  positiveLabel: "Pass",
+  negativeLabel: "Fail",
   higherIs: "better" as const,
-};
+});
 
 export const SCORER = {
   kind: "rule" as const,
-  name: "Final-integer exact match (code)",
+  name: "Per-case check written in the plan, applied by code",
   family: null,
   humanAgreement: null,
   humanAgreementN: null,
@@ -38,18 +37,29 @@ export function familyOfModel(model: string): string {
   return model.split(/[-_.]/)[0] || model;
 }
 
-export function liveSystems(models: Models): AISystem[] {
-  return helperSystems(models.target, familyOfModel(models.target));
-}
+export const LIVE_SYSTEM_ID = "live-target";
 
-const systemIdOf = (s: Settings) => versionOf(s)?.id ?? "helper-v1";
+export function liveSystems(models: Models): AISystem[] {
+  return [
+    {
+      id: LIVE_SYSTEM_ID,
+      name: "AI under test",
+      product: "Live study",
+      version: models.target,
+      kind: "model",
+      family: familyOfModel(models.target),
+      versionString: models.target,
+      description: `${models.target}, configured per arm by the study's system prompt and temperature.`,
+    },
+  ];
+}
 const MAX_TEXT = 4000;
 
 interface BuildInput {
   id: string;
   plan: Plan;
   outcome: RunOutcome;
-  items: Item[];
+  items: Case[];
   models: Models;
   startedAt: number;
   /** When each stage happened, for the session log. */
@@ -81,8 +91,14 @@ function samplesFor(runId: string, expId: string, o: ExperimentOutcome): Sample[
 /** The investigation, built from the plan and the counted outcomes. */
 export function buildInvestigation({ id, plan, outcome, items, models, startedAt, times }: BuildInput): Investigation {
   const iso = (t: number) => new Date(t).toISOString();
-  const used = items.slice(0, Math.max(...plan.experiments.map((e) => e.n)));
-  const hash = itemsHash(used);
+  const { study } = plan;
+  const hash = casesHash(items);
+  const arm = (armId: string) => armById(study, armId);
+  const armSide = (armId: string) => ({
+    label: arm(armId).label,
+    systemId: LIVE_SYSTEM_ID,
+    config: { model: models.target, "system prompt": arm(armId).system || "(none)", temperature: String(arm(armId).temperature) },
+  });
   const experiments: Experiment[] = plan.experiments.map((pe) => {
     const o = outcome.experiments.find((x) => x.id === pe.id)!;
     const runId = `${id}/${pe.id}/primary-1`;
@@ -99,7 +115,7 @@ export function buildInvestigation({ id, plan, outcome, items, models, startedAt
       sweep: null,
       grid: null,
       modelVersion: outcome.model ?? models.target,
-      params: { "control temperature": pe.control.temperature, "treatment temperature": pe.treatment.temperature },
+      params: { "control temperature": String(arm(pe.control).temperature), "treatment temperature": String(arm(pe.treatment).temperature) },
       datasetHash: hash,
       configHash: `cfg:${hashString(JSON.stringify([pe.control, pe.treatment, models.target])).toString(16).padStart(8, "0")}`,
       tokens: o.tokens,
@@ -113,14 +129,14 @@ export function buildInvestigation({ id, plan, outcome, items, models, startedAt
       hypothesisId: pe.hypothesisId,
       status: done ? "complete" : "failed",
       design: {
-        datasetId: DATASET.id,
-        control: { label: armLabel(pe.control), systemId: systemIdOf(pe.control), config: armConfig(pe.control, models.target) },
-        treatment: { label: armLabel(pe.treatment), systemId: systemIdOf(pe.treatment), config: armConfig(pe.treatment, models.target) },
-        metric: METRIC,
+        datasetId: null,
+        control: armSide(pe.control),
+        treatment: armSide(pe.treatment),
+        metric: metricOf(study),
         scorer: SCORER,
         nPerArm: pe.n,
-        seed: DATASET.seed,
-        // Not randomised: every item runs in both arms (paired), from a fixed seed.
+        seed: null,
+        // Not randomised: every case runs in both arms (paired).
         randomized: false,
         pairing: "paired",
         temperature: null,
@@ -137,9 +153,9 @@ export function buildInvestigation({ id, plan, outcome, items, models, startedAt
 
   const inv: Investigation = {
     id,
-    title: TITLE,
-    question: QUESTION,
-    systemId: V2.id,
+    title: study.title,
+    question: study.question,
+    systemId: LIVE_SYSTEM_ID,
     createdAt: iso(startedAt),
     updatedAt: iso(outcome.finishedAt),
     hypotheses: plan.hypotheses,
@@ -161,7 +177,7 @@ export function buildInvestigation({ id, plan, outcome, items, models, startedAt
     experimentId,
   });
   const events: SessionEvent[] = [
-    ev("question", startedAt, QUESTION, [], null),
+    ev("question", startedAt, study.question, [], null),
     ev("hypotheses", times.planned, `Proposed ${plan.hypotheses.length} hypotheses (reasoning model ${models.reasoning})`, plan.hypotheses.map((h) => h.id), null),
     ...plan.experiments.map((e) => ev("design", times.planned, `Designed ${e.id} · ${e.title}`, [e.id, e.hypothesisId], e.id)),
     ...plan.experiments.map((e) => ev("run-started", outcome.startedAt, `Started ${e.id} on ${models.target}`, [e.id], e.id)),

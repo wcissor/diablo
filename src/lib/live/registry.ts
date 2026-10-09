@@ -114,7 +114,18 @@ export function helperSystems(targetModel: string, family: string | null): AISys
 }
 
 /** The Helper versions as catalog entries when the target model is not known (the workspace's lookups). */
-export const HELPER_CATALOG: AISystem[] = VERSIONS.map((v) => ({
+export const HELPER_CATALOG: AISystem[] = [
+  {
+    id: "live-target",
+    name: "AI under test",
+    product: "Live study",
+    version: "live",
+    kind: "model",
+    family: null,
+    versionString: null,
+    description: "The model a live study ran on, configured per arm by the study's system prompt and temperature. Each run records the exact model.",
+  },
+  ...VERSIONS.map((v): AISystem => ({
   id: v.id,
   name: v.name,
   product: "Helper",
@@ -124,4 +135,5 @@ export const HELPER_CATALOG: AISystem[] = VERSIONS.map((v) => ({
   // The model is recorded on each run; an arm that varies one factor is not exactly this version.
   versionString: null,
   description: `${v.name}: ${v.settings.system_prompt} system prompt, temperature ${v.settings.temperature}. A live experiment's arm settings show exactly what ran.`,
-}));
+})),
+];

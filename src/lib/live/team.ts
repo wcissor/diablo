@@ -10,7 +10,8 @@ export type { Reasoner };
  * switched the whole system to Gemini in /admin (and GEMINI_API_KEY is set).
  */
 export function configForReasoner(reasoner: Reasoner, env: Env = process.env): LiveConfig & { reasoner: Reasoner } {
-  const gemini = reasoner === "gemini" && !!env.GEMINI_API_KEY?.trim();
+  // With no Claude key at all, Gemini is the only investigator there is.
+  const gemini = !!env.GEMINI_API_KEY?.trim() && (reasoner === "gemini" || !env.ANTHROPIC_API_KEY?.trim());
   const config = liveConfig({ ...env, DIABLO_LLM: gemini ? "gemini" : "anthropic" });
   return { ...config, reasoner: gemini ? "gemini" : "claude" };
 }

@@ -62,18 +62,18 @@ describe("live investigation, end to end with fakes", () => {
     expect(events[0].type).toBe("start");
     expect(events.at(-1)!.type).toBe("result");
     const plan = events.find((e) => e.type === "plan");
-    // E1 and E2 share Helper v1 as their control: 3 configurations × 40 items.
-    expect(plan && plan.type === "plan" && plan.plannedCalls).toBe(120);
+    // E1 and E2 share arm A as their control: 3 arms × 24 cases.
+    expect(plan && plan.type === "plan" && plan.plannedCalls).toBe(72);
     const progress = events.filter((e) => e.type === "progress");
-    expect(progress).toHaveLength(120);
-    expect(progress.at(-1)).toMatchObject({ progress: { done: 120, total: 120, scored: 120 } });
+    expect(progress).toHaveLength(72);
+    expect(progress.at(-1)).toMatchObject({ progress: { done: 72, total: 72, scored: 72 } });
 
     expect(result.usage.byStage).toEqual({
       draft: { calls: 1, inputTokens: 100, outputTokens: 20 },
-      run: { calls: 120, inputTokens: 120 * 60, outputTokens: 120 * 30 },
+      run: { calls: 72, inputTokens: 72 * 60, outputTokens: 72 * 30 },
       interpret: { calls: 1, inputTokens: 100, outputTokens: 20 },
     });
-    expect(result.usage.calls).toBe(122);
+    expect(result.usage.calls).toBe(74);
   });
 
   it("produces an Investigation the app's own schema and statistics accept", async () => {
@@ -176,7 +176,7 @@ describe("live investigation, end to end with fakes", () => {
       }
       return groundedConclusion(req);
     });
-    const target = fakeTarget(answers, accuracy, { delayMs: 40 });
+    const target = fakeTarget(answers, accuracy, { delayMs: 80 });
     const result = await investigate({ reasoning, target, models, caps, id: ID, now: () => base + offset + (Date.now() - base) });
     expect(result.run.deadlineHit).toBe(true);
     expect(result.run.cancelled).toBeGreaterThan(0);

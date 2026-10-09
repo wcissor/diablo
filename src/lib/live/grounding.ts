@@ -13,14 +13,11 @@ import { VERDICT_LABEL, investigationInterpretation, strengthLine } from "@/lib/
 import type { Investigation } from "@/lib/data/types";
 import { count } from "@/lib/format";
 import { formatCIpp, formatP, formatPct, formatPP } from "@/lib/stats";
-import { V1, V2 } from "./registry";
 import type { Fact } from "./types";
 
 export function buildFacts(inv: Investigation, analysis: Analysis): Fact[] {
   const facts: Fact[] = [];
   const add = (label: string, value: string) => facts.push({ id: `F${facts.length + 1}`, label, value });
-  add("Helper v1 temperature", V1.settings.temperature);
-  add("Helper v2 temperature", V2.settings.temperature);
   for (const e of inv.experiments) {
     const r = analysis.results.get(e.id);
     if (!r) {

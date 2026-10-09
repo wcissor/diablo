@@ -4,12 +4,13 @@ import { makeItems } from "./dataset";
 import { LiveError } from "./errors";
 import { fakeTarget, FakeLLM } from "./llm/fake";
 import { LLMError, type LLMRequest } from "./llm/types";
-import { V1 } from "./registry";
 import { assertWithinCaps, runPaired, scheduleCalls } from "./runner";
+import { TEST_STUDY, toCases } from "./test-fixtures";
 import type { PlannedExperiment } from "./types";
 
-const items = makeItems(40);
-const answers = new Map(items.map((i) => [i.prompt, i.answer]));
+const raw = makeItems(40);
+const items = toCases(raw);
+const answers = new Map(raw.map((i) => [i.prompt, i.answer]));
 const caps: LiveCaps = { ...DEFAULT_CAPS, concurrency: 3 };
 
 const E1: PlannedExperiment = {
@@ -17,8 +18,8 @@ const E1: PlannedExperiment = {
   hypothesisId: "H1",
   title: "Prompt ablation",
   rationale: null,
-  control: V1.settings,
-  treatment: { system_prompt: "short", temperature: "0.2" },
+  control: "A",
+  treatment: "B",
   n: 40,
 };
 const E2: PlannedExperiment = {
@@ -26,8 +27,8 @@ const E2: PlannedExperiment = {
   hypothesisId: "H2",
   title: "Temperature ablation",
   rationale: null,
-  control: V1.settings,
-  treatment: { system_prompt: "full", temperature: "1.0" },
+  control: "A",
+  treatment: "C",
   n: 30,
 };
 
@@ -37,7 +38,7 @@ const accuracy = (r: LLMRequest) => (r.system.startsWith("You are Helper. Be bri
 describe("paired runner", () => {
   it("runs the same items in both arms and calls a shared arm once per item", async () => {
     const target = fakeTarget(answers, accuracy);
-    const out = await runPaired({ target, plan: [E1, E2], items, caps });
+    const out = await runPaired({ study: TEST_STUDY, target, plan: [E1, E2], items, caps });
     // E1 and E2 share Helper v1 as control: 40 (v1) + 40 (short) + 30 (temperature 1.0).
     expect(target.calls).toHaveLength(110);
     expect(out.calls).toEqual({ done: 110, total: 110, scored: 110, failed: 0, cancelled: 0 });
@@ -54,7 +55,7 @@ describe("paired runner", () => {
   });
 
   it("counts k, n and the discordant pairs from the scored pairs", async () => {
-    const out = await runPaired({ target: fakeTarget(answers, accuracy), plan: [E1, E2], items, caps });
+    const out = await runPaired({ study: TEST_STUDY, target: fakeTarget(answers, accuracy), plan: [E1, E2], items, caps });
     for (const e of out.experiments) {
       const kc = e.pairs.filter((p) => p.control.score === 1).length;
       const kt = e.pairs.filter((p) => p.treatment.score === 1).length;
@@ -81,16 +82,16 @@ describe("paired runner", () => {
       inFlight--;
       return `Answer: ${answers.get(req.messages[0].content)}`;
     });
-    await runPaired({ target, plan: [E1], items, caps: { ...caps, concurrency: 4 } });
+    await runPaired({ study: TEST_STUDY, target, plan: [E1], items, caps: { ...caps, concurrency: 4 } });
     expect(peak).toBe(4);
   });
 
   it("refuses a plan outside the caps, whoever wrote it", async () => {
     expect(() => assertWithinCaps([E1, E2, { ...E2, id: "E3" }], items, caps)).toThrow(LiveError);
-    expect(() => assertWithinCaps([{ ...E1, n: caps.maxItemsPerArm + 1 }], makeItems(100), caps)).toThrow(/limit/);
+    expect(() => assertWithinCaps([{ ...E1, n: caps.maxItemsPerArm + 1 }], toCases(makeItems(100)), caps)).toThrow(/limit/);
     expect(() => assertWithinCaps([{ ...E1, n: 5 }], items, caps)).toThrow(/limit/);
     const target = fakeTarget(answers, accuracy);
-    await expect(runPaired({ target, plan: [{ ...E1, n: 41 }], items: makeItems(41), caps: { ...caps, maxItemsPerArm: 40 } })).rejects.toMatchObject({
+    await expect(runPaired({ study: TEST_STUDY, target, plan: [{ ...E1, n: 41 }], items: toCases(makeItems(41)), caps: { ...caps, maxItemsPerArm: 40 } })).rejects.toMatchObject({
       code: "budget",
     });
     expect(target.calls).toHaveLength(0);
@@ -100,7 +101,7 @@ describe("paired runner", () => {
     const target = fakeTarget(answers, () => 1, {
       failWhen: (req) => (req.messages[0].content === items[3].prompt && req.system.startsWith("You are Helper. Be brief") ? new LLMError("timeout", "slow", { provider: "fake" }) : null),
     });
-    const out = await runPaired({ target, plan: [E1], items, caps });
+    const out = await runPaired({ study: TEST_STUDY, target, plan: [E1], items, caps });
     expect(out.calls.failed).toBe(1);
     expect(out.experiments[0].pairs).toHaveLength(39);
     expect(out.experiments[0].excludedPairs).toBe(1);
@@ -113,7 +114,7 @@ describe("paired runner", () => {
       usage: { inputTokens: 70, outputTokens: 2048 },
     });
     const target = fakeTarget(answers, () => 1, { failWhen: (req) => (req.messages[0].content === items[0].prompt && req.temperature === 0.2 && req.system.startsWith("You are Helper. Be brief") ? cut : null) });
-    const out = await runPaired({ target, plan: [{ ...E1, n: 10 }], items, caps });
+    const out = await runPaired({ study: TEST_STUDY, target, plan: [{ ...E1, n: 10 }], items, caps });
     expect(out.calls.failed).toBe(1);
     expect(out.experiments[0].excludedPairs).toBe(1);
     // 19 scored calls at 60 in / 30 out each (the fake), plus the billed failure.
@@ -132,7 +133,7 @@ describe("paired runner", () => {
         return null;
       },
     });
-    const out = await runPaired({ target, plan: [E1], items, caps });
+    const out = await runPaired({ study: TEST_STUDY, target, plan: [E1], items, caps });
     expect(limited).toBe(3);
     expect(out.calls).toMatchObject({ done: 80, total: 80, scored: 80, failed: 0 });
     expect(out.experiments[0].pairs).toHaveLength(40);
@@ -145,7 +146,7 @@ describe("paired runner", () => {
           ? new LLMError("rate-limit", "slow down", { provider: "fake", retryAfterMs: 1 })
           : null,
     });
-    const out = await runPaired({ target, plan: [E1], items, caps });
+    const out = await runPaired({ study: TEST_STUDY, target, plan: [E1], items, caps });
     expect(out.calls.failed).toBe(1);
     expect(out.experiments[0].pairs).toHaveLength(39);
     // One first try plus MAX_REQUEUES more.
@@ -154,7 +155,7 @@ describe("paired runner", () => {
 
   it("stops at once on a fatal provider error (bad key)", async () => {
     const target = fakeTarget(answers, () => 1, { failWhen: (_, i) => (i === 5 ? new LLMError("auth", "bad key", { provider: "fake" }) : null) });
-    const err = await runPaired({ target, plan: [E1, E2], items, caps }).catch((e) => e);
+    const err = await runPaired({ study: TEST_STUDY, target, plan: [E1, E2], items, caps }).catch((e) => e);
     expect(err).toBeInstanceOf(LLMError);
     expect(err.kind).toBe("auth");
     expect(target.calls.length).toBeLessThan(15);
@@ -162,7 +163,7 @@ describe("paired runner", () => {
 
   it("stops when too many calls fail", async () => {
     const target = fakeTarget(answers, () => 1, { failWhen: () => new LLMError("network", "down", { provider: "fake" }) });
-    const err = await runPaired({ target, plan: [E1], items, caps }).catch((e) => e);
+    const err = await runPaired({ study: TEST_STUDY, target, plan: [E1], items, caps }).catch((e) => e);
     expect(err).toBeInstanceOf(LiveError);
     expect(err.code).toBe("too-many-failures");
     expect(target.calls.length).toBeLessThan(80);
@@ -170,7 +171,7 @@ describe("paired runner", () => {
 
   it("at the deadline, cancels what is left and keeps the finished pairs", async () => {
     const target = fakeTarget(answers, () => 1, { delayMs: 15 });
-    const out = await runPaired({ target, plan: [E1], items, caps: { ...caps, concurrency: 2, runDeadlineMs: 100 } });
+    const out = await runPaired({ study: TEST_STUDY, target, plan: [E1], items, caps: { ...caps, concurrency: 2, runDeadlineMs: 100 } });
     expect(out.deadlineHit).toBe(true);
     expect(out.calls.cancelled).toBeGreaterThan(0);
     const pairs = out.experiments[0].pairs.length;
@@ -183,7 +184,7 @@ describe("paired runner", () => {
     const ctrl = new AbortController();
     const target = fakeTarget(answers, () => 1, { delayMs: 5 });
     setTimeout(() => ctrl.abort(), 20);
-    await expect(runPaired({ target, plan: [E1], items, caps, signal: ctrl.signal })).rejects.toMatchObject({ code: "aborted" });
+    await expect(runPaired({ study: TEST_STUDY, target, plan: [E1], items, caps, signal: ctrl.signal })).rejects.toMatchObject({ code: "aborted" });
     expect(target.calls.length).toBeLessThan(80);
   });
 });

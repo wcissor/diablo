@@ -2,23 +2,18 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import { connection } from "next/server";
 import { LiveInvestigation } from "@/components/live/LiveInvestigation";
-import { Page, PageHeader } from "@/components/pages/Library";
+import { Page } from "@/components/pages/Library";
 import { publicConfig } from "@/lib/live/env";
+import { currentConfig } from "@/lib/live/team";
 
-export const metadata: Metadata = { title: "Live investigation" };
+export const metadata: Metadata = { title: "Investigation" };
 
 export default function LivePage() {
   return (
     <Page>
-      <PageHeader
-        title="Live investigation"
-        sub="A real model plans the experiments and explains the result. Code calls the system under test, scores every answer and computes every number."
-      />
-      <div className="mt-8">
-        <Suspense fallback={<LiveSkeleton />}>
-          <Configured />
-        </Suspense>
-      </div>
+      <Suspense fallback={<LiveSkeleton />}>
+        <Configured />
+      </Suspense>
     </Page>
   );
 }
@@ -26,7 +21,7 @@ export default function LivePage() {
 /** The model setup is read per request, so adding a key takes effect without a rebuild. No key ever reaches the page. */
 async function Configured() {
   await connection();
-  return <LiveInvestigation config={publicConfig()} />;
+  return <LiveInvestigation config={publicConfig(await currentConfig())} />;
 }
 
 function LiveSkeleton() {

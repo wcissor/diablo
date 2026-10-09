@@ -8,7 +8,6 @@
  */
 import { analyze, buildInvestigation } from "./analyze";
 import { maxCalls, type LiveCaps } from "./budget";
-import { makeItems } from "./dataset";
 import { draftPlan } from "./draft";
 import { LiveError } from "./errors";
 import { interpret } from "./interpret";
@@ -28,7 +27,7 @@ export interface InvestigateOptions {
   now?: () => number;
   /** The meter to fill; pass one to read the calls made even when the run fails. */
   usage?: Usage;
-  /** The researcher's question (optional); it frames the hypotheses. */
+  /** The researcher's question; the study is designed from it. */
   objective?: string;
 }
 
@@ -95,18 +94,20 @@ export async function investigate(opts: InvestigateOptions): Promise<LiveResult>
     const { plan, attempts } = await draftPlan({
       llm: reasoningDraft,
       caps: opts.caps,
+      target: opts.models.target,
       signal: opts.signal,
       objective: opts.objective,
       onAttempt: (attempt, ok, problems) => emit({ type: "draft-attempt", attempt, ok, problems }),
     });
     const planned = now();
-    const items = makeItems(Math.max(...plan.experiments.map((e) => e.n)));
+    const items = plan.study.cases;
     emit({ type: "plan", plan, plannedCalls: scheduleCalls(plan.experiments, items).length });
     leave("draft");
 
     enter("run");
     const outcome = await runPaired({
       target,
+      study: plan.study,
       plan: plan.experiments,
       items,
       caps: { ...opts.caps, runDeadlineMs: Math.max(1000, Math.min(opts.caps.runDeadlineMs, remaining() - INTERPRET_RESERVE_MS)) },
