@@ -8,7 +8,7 @@
 
 ## Summary
 
-**Problem.** Teams that ship AI change prompts, models, tools and retrieval every week. When quality drops, an eval dashboard says *that* a score moved, not which change caused it or whether the drop is real. **Who has it.** Every company that integrates AI: a telecom such as Azercell running a support assistant, a startup shipping an agent, a frontier lab such as Anthropic or OpenAI comparing model versions. (Target segments only; none is a customer or partner.) **What Diablo does.** It turns a question ("why did it get worse?") into competing hypotheses and controlled experiments. Each hypothesis gets a verdict with an effect size, a 95% confidence interval, an exact test and a validity grade, traceable to raw outputs. The rule: **the AI reasons, the system measures**; the model can never write a number. **Proof.** The live prototype runs the full loop on demo data. Its statistics engine is real and checked against SciPy reference values: 122 unit tests and 40 end-to-end tests pass. A seeded planted-cause benchmark (45,000 simulated updates; it measures the protocol, not an LLM) shows that when Diablo names a cause it is the right one 97.3% of the time, against 71.7% for blaming the largest observed drop. **Next.** Put a real reasoning model (GLM-5.3) and a real target-system connector behind the existing provider interface, then run the first investigation on a live system.
+**Problem.** Teams that ship AI change prompts, models, tools and retrieval every week. When quality drops, an eval dashboard says *that* a score moved, not which change caused it or whether the drop is real. **Who has it.** Every company that integrates AI: a telecom such as Azercell running a support assistant, a startup shipping an agent, a frontier lab such as Anthropic or OpenAI comparing model versions. (Target segments only; none is a customer or partner.) **What Diablo does.** It turns a question ("why did it get worse?") into competing hypotheses and controlled experiments. Each hypothesis gets a verdict with an effect size, a 95% confidence interval, an exact test and a validity grade, traceable to raw outputs. The rule: **the AI reasons, the system measures**; the model can never write a number. **Proof.** The live prototype runs the full loop on demo data. Its statistics engine is real and checked against SciPy reference values: 260 unit tests and 48 end-to-end tests (sign-in setup included) pass (9 Oct 2026). A seeded planted-cause benchmark (45,000 simulated updates; it measures the protocol, not an LLM) shows that when Diablo's attribution rule, which its verdicts follow, names a cause, it is the right one 97.3% of the time, against 71.7% for blaming the largest observed drop. The same benchmark caught a gap in the app's verdicts, now fixed (section 3). **Next.** Put a real reasoning model (GLM-5.3) and a real target-system connector behind the existing provider interface, then run the first investigation on a live system.
 
 ## 1. Value for the user
 
@@ -50,7 +50,7 @@ The system does everything numeric: it runs the target, counts outcomes and comp
 
 ## 3. Quality testing
 
-**Commands run on 9 Oct 2026:** `npm test` gave 122 passed (46 of them the planted-cause benchmark's, below); `npx playwright test` (production build) gave 40 passed; `npm run typecheck`, `npm run lint` and `npx next build` are clean.
+**Commands run on 9 Oct 2026** (main plus the benchmark follow-up): `npm test` gave 260 passed (53 of them the planted-cause benchmark's, below); `npx playwright test` (production build) gave 48 passed (sign-in setup included); `npm run typecheck`, `npm run lint` and `npx next build` are clean. Counts grow as features land; rerun the commands rather than trusting these.
 
 - **Statistics against references.** The Wilson, Newcombe, z-test, Fisher, McNemar and Holm results match SciPy/statsmodels values to within 5×10⁻⁵ (`src/lib/stats.test.ts`).
 - **Rubric and derivations.** Missing fields never pass; every CI contains its Δ; the simulator is deterministic.
@@ -60,7 +60,7 @@ The system does everything numeric: it runs the target, counts outcomes and comp
 
 1. **Fixing the wrong cause.** Long-context demo: the obvious hypothesis ("accuracy falls past 128k tokens") is *rejected*: −1.9 pp, CI −5.1 to +1.3. The competing one ("needle position matters") is *supported*: −10.0 pp, CI −14.3 to −6.0. A team that capped context length would have fixed nothing.
 2. **A significant result with no alternative tested.** Sycophancy demo: +8.5 pp, CI 1.6 to 15.3, p = 0.016, but no competing hypothesis was tested. C9 fails, and the evidence stays "Moderate".
-3. **A lucky p-value.** A borderline effect (p ≈ 0.03) among two primary tests gets a C7 warning, because it does not survive Holm.
+3. **A lucky p-value.** A borderline effect (p ≈ 0.03) among two primary tests gets a C7 warning, because it does not survive Holm, and its hypothesis is not marked supported.
 4. **A result that does not replicate.** A reversed replication fails C8, and "Strong" drops to "Moderate".
 5. **A judge grading its own family.** C4 fails, and the evidence becomes "Weak".
 
@@ -77,17 +77,19 @@ The system does everything numeric: it runs the target, counts outcomes and comp
 | Grades whether the result can be trusted | no | no | no | C1–C9 rubric |
 | Claim → evidence → raw trace | no | partial | traces only | yes |
 
-**Measured against the common shortcuts: a planted-cause benchmark** ([`docs/BENCHMARK.md`](BENCHMARK.md), reproduce with `npm run bench`). This is a seeded simulation, not a model run: no LLM is called and nothing touches the network. It validates the *measuring* half (Diablo's statistical protocol, given one clean experiment per candidate factor), not the reasoning half. In 45,000 simulated updates, 2 to 4 factors changed at once, with one planted cause (a 5 to 20 pp drop) or none, 40 to 160 items per arm, and items of varying difficulty. Every approach ran on the same simulated data:
+**Measured against the common shortcuts: a planted-cause benchmark** ([`docs/BENCHMARK.md`](BENCHMARK.md), reproduce with `npm run bench`). This is a seeded simulation, not a model run: no LLM is called and nothing touches the network. It validates the *measuring* half (Diablo's statistical protocol, given one clean experiment per candidate factor), not the reasoning half. In 45,000 simulated updates, 2 to 4 factors changed at once, with one planted cause (a 5 to 20 pp drop) or none, 40 to 160 items per arm, and items of varying difficulty. Every approach ran on the same simulated scenarios:
 
 | Approach | Right cause named (a cause exists) | Innocent factor blamed (a cause exists) | Cause named when none exists | When it named a cause, it was the right one |
 |---|---|---|---|---|
 | Overall before/after (a dashboard) | cannot attribute; flags the drop in 51.7% | 0% | 0% | never names one |
-| Blame the largest observed drop (an untested eyeball or LLM judgment) | 84.5% | 13.1% | 81.0% | 71.7% |
+| Untested judgment: blame the largest observed drop | 84.5% | 13.1% | 81.0% | 71.7% |
 | Paired tests, no multiple-comparison correction | 49.7% | 2.4% | 4.1% | 93.5% |
-| Unpaired tests with Holm | 31.7% | 0.3% | 0.4% | 98.6% |
-| **Diablo: paired exact McNemar per factor, Holm across factors** | **41.0%** | **0.9%** | **1.1%** | **97.3%** |
+| Paired data analysed as if unpaired (z-test), with Holm | 31.7% | 0.3% | 0.4% | 98.6% |
+| An unpaired design (fresh items in each arm), z-test with Holm | 33.1% | 1.9% | 2.2% | 93.2% |
+| **Diablo: paired exact McNemar per factor, Holm across factors (the rule its verdicts follow)** | **41.0%** | **0.9%** | **1.1%** | **97.3%** |
 
-- **The trade-off, stated plainly.** Diablo's claims hold up, and it pays for that in power: when the evidence is thin it answers "no attributable cause" instead of guessing. It names the right cause in 80% of scenarios only from n = 80 for a 20 pp drop (83.1%) and n = 160 for a 15 pp drop (89.2%); at n = 160 it finds a 5 pp drop 13.6% of the time.
+- **The trade-off, stated plainly.** Diablo's claims hold up, and it pays for that in power: when the evidence is thin it answers "no attributable cause" instead of guessing. It names the right cause in 80% of scenarios only from n = 80 for a 20 pp drop (83.1%) and n = 160 for a 15 pp drop (89.2%); at n = 160 it finds a 5 pp drop 13.6% of the time. Pairing helps overall, but not everywhere: a design with fresh items in each arm finds more causes than Diablo in the three settings with the least evidence (a 5 pp drop at n = 40 and 80, a 10 pp drop at n = 40).
+- **What the benchmark caught in Diablo itself.** The app's verdicts used to mark a hypothesis supported whenever its interval excluded zero, and showed a failed Holm check (C7) only as a warning. Checked on 2,250 of the scenarios, that rule raised false alarms in 8.2% of those with no cause, more than uncorrected paired tests (4.7%). Verdicts now also require the Holm correction, and they named exactly the protocol's factors in all 2,250 (`docs/BENCHMARK.md`, "The app's verdicts").
 - **Intervals.** Its 95% CIs (the app's own paired bootstrap) covered the true effect 95.5% of the time for the real cause and 96.1% for factors with no effect.
 - **Concrete seeds,** including Diablo's own failures: one where both shortcuts revert retrieval top-k while the real cause was the temperature (Diablo: no attributable cause), one where Diablo misses a real 10 pp cause at 40 items, and one where it blames a factor that changed nothing.
 - Every number above is pinned in `src/lib/bench/benchmark.test.ts`, which also fails if `docs/BENCHMARK.md` is stale.

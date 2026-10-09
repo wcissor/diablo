@@ -32,7 +32,7 @@ Dashboards tell you *that* a score moved. They do not tell you *why*, and they d
 
 ## 2:10 Proof (25 s)
 
-The rule: **the AI reasons, the system measures.** The model proposes hypotheses and experiments. It can never write a number. Every interval and p-value comes from a statistics engine checked against SciPy: 51 unit tests and 26 end-to-end tests, all public in the repo.
+The rule: **the AI reasons, the system measures.** The model proposes hypotheses and experiments. It can never write a number. Every interval and p-value comes from a statistics engine checked against SciPy: 260 unit tests and 48 end-to-end tests, all public in the repo.
 
 What is real today: the full workflow and the statistics. What is next: plugging in the reasoning model and a connector to your own AI system.
 

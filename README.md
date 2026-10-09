@@ -10,7 +10,7 @@ Proof you can rerun (`npm test`, pinned in `src/lib/submission-claims.test.ts`),
 
 | Works today | Next |
 | --- | --- |
-| Full investigation loop in the browser on demo data; real statistics engine (Wilson, Newcombe, z, Fisher, exact McNemar, paired bootstrap, Holm); validity rubric C1–C9; a live investigation (`/live`) where a real model plans and explains while code runs the target and computes every number, as soon as `GEMINI_API_KEY` (or `ZAI_API_KEY`) is set; Google sign-in; 170 unit tests and 46 Playwright tests (sign-in setup included) pass | A connector to a customer's AI system behind the existing `DataProvider` interface; live runs stored server-side instead of in the browser tab |
+| Full investigation loop in the browser on demo data; real statistics engine (Wilson, Newcombe, z, Fisher, exact McNemar, paired bootstrap, Holm); validity rubric C1–C9; a live investigation (`/live`) where a real model plans and explains while code runs the target and computes every number, as soon as `GEMINI_API_KEY` (or `ZAI_API_KEY`) is set; Google sign-in; 260 unit tests and 48 Playwright tests (sign-in setup included) pass on 9 Oct 2026 | A connector to a customer's AI system behind the existing `DataProvider` interface; live runs stored server-side instead of in the browser tab |
 
 For every company that integrates AI, from telecoms to startups to frontier labs. These are target segments, not customers.
 
