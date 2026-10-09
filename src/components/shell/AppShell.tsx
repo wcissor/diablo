@@ -22,7 +22,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         Skip to content
       </a>
       <div className="app-frame flex h-dvh overflow-hidden">
-        <aside className="sidebar no-print hidden h-dvh shrink-0 flex-col border-r border-line bg-subtle dark:bg-black md:flex">
+        <aside className="sidebar no-print hidden h-dvh shrink-0 flex-col border-r border-line bg-subtle dark:bg-[#0C080A] md:flex">
           <SidebarContent variant="desktop" />
         </aside>
         <div className="flex min-w-0 flex-1 flex-col">
