@@ -3,7 +3,7 @@
 **Diablo AI tells companies what is actually happening inside their AI systems: not just *that* a score moved, but *which change* moved it, and how sure they can be.**
 
 - Live product: https://app.diablo.pnoia.dev (Continue with Google, any Google account)
-- Code: https://github.com/wcissor/diablo
+- Code: https://github.com/BreusCEO/diablo-codebase
 - Every statistic below is reproduced by `npm test` (`src/lib/submission-claims.test.ts`, `src/lib/bench/benchmark.test.ts`); cost estimates are labelled as such.
 
 ## Summary
