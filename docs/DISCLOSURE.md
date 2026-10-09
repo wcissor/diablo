@@ -7,9 +7,10 @@ Disclosure for the hackathon (rule 04). Versions are exactly those in `package.j
 | Where | Model | Status |
 |---|---|---|
 | Demo workspace (diablo.pnoia.dev) | none: the demo agent is rule-based (`src/lib/data/mock/agent.ts`) and runs are simulated by a seeded simulator | live |
-| Live engine (`src/lib/live/`) | Google Gemini via the Gemini API, or Z.ai GLM via its OpenAI-compatible API, chosen by environment variables | in the repo; runs only when a model key is configured, otherwise it is disabled and says so |
-| Python engine (`engine/`) | Google Gemini via `google-genai`, default `gemini-3.1-pro-preview` | in the repo; tests use a mocked client |
-| Planned reasoning model | GLM-5.3 (Z.ai) | planned |
+| Reasoning model | Claude Opus 5.5 (Anthropic, `claude-opus-5-5`): drafts hypotheses and experiments and writes the interpretation | chosen; not yet run against the real Anthropic API (no key was available) |
+| System under test in the live run ("Helper") | Claude Haiku 5.5 (Anthropic, `claude-haiku-5-5`) | chosen; not yet run against the real Anthropic API |
+| Live engine (`src/lib/live/`) | the Anthropic API for the two Claude models above; Google Gemini via the Gemini API, or Z.ai GLM via its OpenAI-compatible API, as alternative providers; chosen by environment variables | in the repo; runs only when a model key is configured, otherwise it is disabled and says so |
+| Python engine (`engine/`) | Google Gemini via `google-genai`, default `gemini-3.1-pro-preview`; the developer's own learning project, separate from the live engine | in the repo; tests use a mocked client |
 | Development | the team built the project with AI coding assistance (Claude Code) | used during development |
 
 No model is trained or fine-tuned. No model output is ever used as a number: every statistic is computed by code (`src/lib/stats.ts`).

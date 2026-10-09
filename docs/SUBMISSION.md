@@ -8,7 +8,7 @@
 
 ## Summary
 
-**Problem.** Teams that ship AI change prompts, models, tools and retrieval every week. When quality drops, an eval dashboard says *that* a score moved, not which change caused it or whether the drop is real. **Who has it.** Every company that integrates AI: a telecom such as Azercell running a support assistant, a startup shipping an agent, a frontier lab such as Anthropic or OpenAI comparing model versions. (Target segments only; none is a customer or partner.) **What Diablo does.** It turns a question ("why did it get worse?") into competing hypotheses and controlled experiments. Each hypothesis gets a verdict with an effect size, a 95% confidence interval, an exact test and a validity grade, traceable to raw outputs. The rule: **the AI reasons, the system measures**; the model can never write a number. **Proof.** The live prototype runs the full loop on demo data. Its statistics engine is real and checked against SciPy reference values: 251 unit tests and 48 end-to-end tests pass. A seeded planted-cause benchmark (45,000 simulated updates; it measures the protocol, not an LLM) shows that when Diablo names a cause it is the right one 97.3% of the time, against 71.7% for blaming the largest observed drop. **Next.** The model-backed engine at `/live` is built and tested with a scripted model and mocked APIs; it switches on with a Gemini or GLM key and has not yet been run against a real model API. Next: run it on a real model, then connect a customer's own AI system and pilot it on one real regression.
+**Problem.** Teams that ship AI change prompts, models, tools and retrieval every week. When quality drops, an eval dashboard says *that* a score moved, not which change caused it or whether the drop is real. **Who has it.** Every company that integrates AI: a telecom such as Azercell running a support assistant, a startup shipping an agent, a frontier lab such as Anthropic or OpenAI comparing model versions. (Target segments only; none is a customer or partner.) **What Diablo does.** It turns a question ("why did it get worse?") into competing hypotheses and controlled experiments. Each hypothesis gets a verdict with an effect size, a 95% confidence interval, an exact test and a validity grade, traceable to raw outputs. The rule: **the AI reasons, the system measures**; the model can never write a number. **Proof.** The live prototype runs the full loop on demo data. Its statistics engine is real and checked against SciPy reference values: 251 unit tests and 48 end-to-end tests pass. A seeded planted-cause benchmark (45,000 simulated updates; it measures the protocol, not an LLM) shows that when Diablo names a cause it is the right one 97.3% of the time, against 71.7% for blaming the largest observed drop. **Next.** The model-backed engine at `/live` is built and tested with a scripted model and mocked APIs. Its reasoning model is Claude Opus 5.5 and its system under test is Claude Haiku 5.5 (Anthropic); it switches on with a model key and has not yet been run against a real model API. Next: run it on Claude, then connect a customer's own AI system and pilot it on one real regression.
 
 ## 1. Value for the user
 
@@ -37,9 +37,9 @@ The CI is a paired bootstrap: 2,000 resamples, seed 1. Discordant pairs: E1 b = 
 | Verdicts and statuses derived from counts, never typed in | Sample-size planning before a run |
 | Rule-based demo agent (7 topics) and a seeded run simulator | Autonomous monitoring ("something changed; investigate") |
 | Report export (print/PDF, JSON), chart export (CSV, SVG) | |
-| **Also in the repo:** model-backed live engine at `/live` (Gemini or Z.ai GLM; disabled without a key, never faked); Python engine with a Gemini provider (`engine/`); Google sign-in with protected routes | |
+| **Also in the repo:** model-backed live engine at `/live` (Claude Opus 5.5 reasons, Claude Haiku 5.5 is the system under test; Gemini, or Z.ai GLM, as an alternative provider; disabled without a key, never faked); Python engine with a Gemini provider (`engine/`), the developer's own learning project; Google sign-in with protected routes | |
 
-**What the AI contributes.** The reasoning model does an experienced evaluator's work:
+**What the AI contributes.** The reasoning model (Claude Opus 5.5) does an experienced evaluator's work:
 
 - turn a vague question into testable hypotheses, including a competing explanation;
 - choose the experiment that separates them (an ablation, a sweep, a paired comparison);
@@ -100,17 +100,17 @@ The system does everything numeric: it runs the target, counts outcomes and comp
 2. prompts from production logs or an existing eval set, at least 30 per arm (the demo uses 80 to 600);
 3. a scorer: a rule (exact match, JSON schema) or an LLM judge from another model family, checked against human labels (draft threshold: agreement ≥ 0.80).
 
-**Running cost** (estimate; assumptions stated, GLM-5.3 list prices per 1M tokens: $1.40 input, $0.26 cached input, $4.40 output). Assume one investigation takes 12 reasoning steps, each with 10k new input tokens, 20k cached context and 2k output tokens:
+**Running cost** (estimate; assumptions stated. List prices per 1M tokens from https://platform.claude.com/docs/en/about-claude/pricing, read 9 Oct 2026: Claude Opus 5.5 $4 input, $0.20 cache hits, $20 output; Claude Haiku 5.5 $0.10 input, $0.50 output for prompts up to 100k tokens). Assume one investigation takes 12 reasoning steps, each with 10k new input tokens, 20k cached context and 2k output tokens:
 
-- GLM-5.3: 0.12M × $1.40 + 0.24M × $0.26 + 0.024M × $4.40 = $0.168 + $0.062 + $0.106 ≈ **$0.34 per investigation**.
-- glm-5.3-flash ($0.15 / $0.03 / $0.50): $0.018 + $0.007 + $0.012 ≈ **$0.04**.
-- LLM judging of the worked example on flash: 320 outputs × (1k input + 100 output tokens) = 0.32M × $0.15 + 0.032M × $0.50 ≈ **$0.06**.
+- Reasoning on Claude Opus 5.5: 0.12M × $4 + 0.24M × $0.20 + 0.024M × $20 = $0.48 + $0.048 + $0.48 ≈ **$1.01 per investigation**. This ignores the one-time premium for writing the context to the cache.
+- The live run's system under test on Claude Haiku 5.5: at most 160 calls (the default budget) of about 300 input and 200 output tokens = 0.048M × $0.10 + 0.032M × $0.50 = $0.0048 + $0.016 ≈ **$0.02 per run**.
+- LLM judging of the worked example on Claude Haiku 5.5: 320 outputs × (1k input + 100 output tokens) = 0.32M × $0.10 + 0.032M × $0.50 = $0.032 + $0.016 ≈ **$0.05**.
 
-The customer's own model calls are extra. Statistics run locally at no cost.
+Both models think by default, and thinking is billed as output tokens, so the output assumptions above have to cover it; a higher effort setting means more output. The customer's own model calls are extra. Statistics run locally at no cost.
 
 **Stack.** Next.js 16 on Vercel (live). All data access goes through one typed `DataProvider` interface (`src/lib/data/provider.ts`), so the in-browser mock can be swapped for a real backend.
 
-**Next step (plan).** Implement an engine-backed `DataProvider`. GLM-5.3 returns hypotheses and experiment designs as JSON, which is validated with the existing zod schemas. Runs call the target system, and `stats.ts` remains the only source of numbers. Then run the first investigation on a real open-weights model and publish the report.
+**Next step (plan).** Implement an engine-backed `DataProvider`. Claude Opus 5.5 returns hypotheses and experiment designs as JSON, which is validated with the existing zod schemas. Runs call the target system, and `stats.ts` remains the only source of numbers. Then run the first investigation on a real model and publish the report.
 
 ## 5. Originality
 
