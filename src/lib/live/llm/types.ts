@@ -4,7 +4,7 @@
  * fake without knowing which.
  */
 
-export type LLMProvider = "anthropic" | "gemini" | "zai" | "fake";
+export type LLMProvider = "anthropic" | "gemini" | "fake";
 
 /** The effort levels every Claude model with an effort setting accepts. */
 export type Effort = "low" | "medium" | "high";
@@ -18,7 +18,7 @@ export interface LLMRequest {
   system: string;
   messages: LLMMessage[];
   /**
-   * Ask the provider for a JSON object (Gemini: application/json; Z.ai: json_object).
+   * Ask the provider for a JSON object (Gemini: application/json).
    * The Claude API has no schema-free JSON mode: there the prompt asks for JSON and
    * the caller's validate-and-repair loop does the rest.
    */
@@ -101,7 +101,7 @@ export class LLMError extends Error {
   }
 }
 
-/** The reply stopped at the output limit (Gemini MAX_TOKENS, Z.ai length, Claude max_tokens) or a full context window. */
+/** The reply stopped at the output limit (Gemini MAX_TOKENS, Claude max_tokens) or a full context window. */
 export const isCutOff = (finishReason: string | null): boolean =>
   /^(MAX_TOKENS|length|max_tokens|model_context_window_exceeded)$/i.test(finishReason ?? "");
 
@@ -116,7 +116,7 @@ export const isFatal = (e: unknown): e is LLMError =>
   e instanceof LLMError && (e.kind === "auth" || e.kind === "model-not-found" || e.kind === "quota" || e.kind === "bad-request");
 
 export const ERROR_HINT: Record<LLMErrorKind, string> = {
-  auth: "The model key was rejected or lacks permission. Check ANTHROPIC_API_KEY (or GEMINI_API_KEY, ZAI_API_KEY) in the environment.",
+  auth: "The model key was rejected or lacks permission. Check ANTHROPIC_API_KEY (or GEMINI_API_KEY) in the environment.",
   "model-not-found": "The configured model id does not exist for this key. Check DIABLO_REASONING_MODEL and DIABLO_TARGET_MODEL.",
   "rate-limit": "The provider is rate-limiting this key. Wait a minute and try again.",
   quota: "The key's quota, spend limit or credit is used up (for example a monthly spend cap or a free tier's daily limit). Raise the limit, wait for it to reset or use another key.",

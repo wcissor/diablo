@@ -27,7 +27,7 @@ import { LLMError, type LLM, type LLMRequest, type LLMResponse, type LLMUsage } 
  * - The answer is the text blocks joined; thinking and redacted_thinking
  *   blocks are not the answer. A reply stopped by max_tokens (or a full
  *   context window) comes back as an answer with that finish reason, like the
- *   Gemini and Z.ai adapters' MAX_TOKENS and length: the callers decide (the
+ *   Gemini adapter's MAX_TOKENS and length: the callers decide (the
  *   draft loop asks for a shorter reply, the runner leaves out an empty one).
  */
 export const ANTHROPIC_BASE = "https://api.anthropic.com/v1";

@@ -25,7 +25,7 @@ const PLANS: Plan[] = [
     for: "Try Diablo on sample AI systems.",
     monthly: 0,
     yearly: 0,
-    features: ["Demo workspace with sample systems", "10 investigations a month", "Full statistics and evidence", "Community support"],
+    features: ["Live investigations on a hosted model", "10 investigations a month", "Full statistics and evidence", "Community support"],
     cta: "Try yourself",
   },
   {
@@ -42,7 +42,7 @@ const PLANS: Plan[] = [
       "Bring your own model key",
     ],
     featured: true,
-    cta: "Start in the demo",
+    cta: "Start free",
   },
   {
     name: "Team",
@@ -51,7 +51,7 @@ const PLANS: Plan[] = [
     yearly: 159,
     unit: "per workspace, per month",
     features: ["Everything in Pro", "Shared knowledge across the team", "Autonomous discovery (early access)", "Roles and a full audit log", "Priority support"],
-    cta: "Start in the demo",
+    cta: "Start free",
   },
 ];
 

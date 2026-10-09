@@ -5,8 +5,7 @@
    Brand: burgundy #57001A and cream #FCF8EF. Burgundy is an accent,
    never a surface. Light is the default; dark is a warm plum theme.
    The only palette changes from the prototype are the measured
-   accessibility fixes to ink-2 / ink-3 and the focus ring
-   (see CHANGELOG-REDESIGN.md, "Contrast").
+   accessibility fixes to ink-2 / ink-3 and the focus ring.
    ─────────────────────────────────────────────────────────────── */
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));

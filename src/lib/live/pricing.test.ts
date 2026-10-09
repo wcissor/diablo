@@ -11,7 +11,7 @@ describe("Claude list prices", () => {
   it("finds a dated snapshot under its alias, and nothing for other providers", () => {
     expect(priceOf("claude-haiku-4-5-20251001")).toBe(CLAUDE_PRICES["claude-haiku-4-5"]);
     expect(priceOf("gemini-3.8-flash")).toBeNull();
-    expect(priceOf("glm-5.3")).toBeNull();
+    expect(priceOf("unknown-model-1")).toBeNull();
   });
 
   it("prices plan and conclusion at the reasoning model's rate and the target calls at the target's", () => {

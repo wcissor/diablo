@@ -58,8 +58,8 @@ export function Principle() {
         <Reveal delay={0.08} className="mt-4">
           <Grounding />
           <p className="t-caption mt-4 text-ink-3">
-            An illustration of the rule. In today’s demo a rule-based stand-in plays the model, and code writes every
-            sentence that carries a number.
+            An illustration of the rule. In the live product the investigator writes placeholders such as {"{{F3}}"},
+            a checker rejects any number it types itself, and code fills in every value.
           </p>
         </Reveal>
       </div>

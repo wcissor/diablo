@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
   const config = await currentConfig();
   const models = createModels(config);
   if (!config.provider || !models) {
-    return problem(503, "not_configured", config.problem ?? "Live runs need a model key: set ANTHROPIC_API_KEY (or GEMINI_API_KEY, ZAI_API_KEY) on the server.");
+    return problem(503, "not_configured", config.problem ?? "Live runs need a model key: set ANTHROPIC_API_KEY (or GEMINI_API_KEY) on the server.");
   }
 
   const token = request.cookies.get(SESSION_COOKIE)?.value ?? `${session.provider}:${session.user.id}`;

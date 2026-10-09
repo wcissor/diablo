@@ -11,8 +11,7 @@ import type { AbuseLimits, LivePublicConfig, ProviderId } from "./types";
  *   ANTHROPIC_API_KEY         Claude API key (Claude Console → Settings → API keys)
  *   ANTHROPIC_WORKSPACE_ID    only for a key not scoped to one workspace: sent as anthropic-workspace-id
  *   GEMINI_API_KEY            Google AI Studio key (free tier, no card)
- *   ZAI_API_KEY               Z.ai key (GLM)
- *   DIABLO_LLM                anthropic | gemini | zai; else whichever key exists (Claude, then Gemini, then Z.ai)
+ *   DIABLO_LLM                anthropic | gemini; else whichever key exists (Claude, then Gemini)
  *   DIABLO_REASONING_MODEL    plans and interprets (default per provider in providers.ts)
  *   DIABLO_TARGET_MODEL       the "Helper" system under test (default per provider in providers.ts)
  *   LIVE_MAX_EXPERIMENTS, LIVE_MAX_ITEMS_PER_ARM, LIVE_CONCURRENCY,

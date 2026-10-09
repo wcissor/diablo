@@ -5,7 +5,7 @@ import { TryButton } from "@/components/TryButton";
 /** The closing band on every page: one sentence, one action. */
 export function CtaBand({
   title = "Investigate your AI.",
-  line = "Run an investigation in the demo workspace. No account needed.",
+  line = "Ask Diablo a question about your AI. Sign in with Google and watch it investigate.",
 }: {
   title?: string;
   line?: string;

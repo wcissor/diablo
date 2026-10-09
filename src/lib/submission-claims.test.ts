@@ -1,5 +1,5 @@
 /**
- * Pins every number that docs/SUBMISSION.md and docs/PITCH.md quote, so a
+ * Pins every number that docs/SUBMISSION.md quotes, so a
  * reader can check them with `npm test` instead of taking them on trust.
  *
  * Part 1 is an illustrative worked example (not customer data): one AI system,

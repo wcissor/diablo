@@ -1,8 +1,7 @@
 /**
  * Validity checks: what a researcher needs to trust a result.
  *
- * Rubric v0, draft. The thresholds below are open decisions (see
- * CHANGELOG-REDESIGN.md). "Not recorded" is a state of its own: a check never
+ * Rubric v0, draft. The thresholds below are open decisions. "Not recorded" is a state of its own: a check never
  * passes because a field is missing.
  */
 import { formatCIpp, formatP, formatPP } from "@/lib/stats";

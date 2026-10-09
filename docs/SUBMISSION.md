@@ -1,14 +1,14 @@
 # Diablo AI
 
-**Diablo AI lets companies understand what is actually happening inside their AI systems: not just *that* a score moved, but *which change* moved it, and how sure they can be.**
+**Diablo AI tells companies what is actually happening inside their AI systems: not just *that* a score moved, but *which change* moved it, and how sure they can be.**
 
-- Live demo: https://app.diablo.pnoia.dev (click "Enter demo workspace"; no account needed)
+- Live product: https://app.diablo.pnoia.dev (Continue with Google, any Google account)
 - Code: https://github.com/wcissor/diablo
-- Every statistic below is reproduced by `npm test` (`src/lib/submission-claims.test.ts`); cost figures are labelled estimates.
+- Every statistic below is reproduced by `npm test` (`src/lib/submission-claims.test.ts`, `src/lib/bench/benchmark.test.ts`); cost estimates are labelled as such.
 
 ## Summary
 
-**Problem.** Teams that ship AI change prompts, models, tools and retrieval every week. When quality drops, an eval dashboard says *that* a score moved, not which change caused it or whether the drop is real. **Who has it.** Every company that integrates AI: a telecom such as Azercell running a support assistant, a startup shipping an agent, a frontier lab such as Anthropic or OpenAI comparing model versions. (Target segments only; none is a customer or partner.) **What Diablo does.** It turns a question ("why did it get worse?") into competing hypotheses and controlled experiments. Each hypothesis gets a verdict with an effect size, a 95% confidence interval, an exact test and a validity grade, traceable to raw outputs. The rule: **the AI reasons, the system measures**; the model can never write a number. **Proof.** The live prototype runs the full loop on demo data. Its statistics engine is real and checked against SciPy reference values: 251 unit tests and 48 end-to-end tests pass. A seeded planted-cause benchmark (45,000 simulated updates; it measures the protocol, not an LLM) shows that when Diablo names a cause it is the right one 97.3% of the time, against 71.7% for blaming the largest observed drop. **Real run.** On production, with Claude Opus 5.5 reasoning and Claude Haiku 4.5 under test, Diablo found the planted cause: the shortened prompt took accuracy from 40/40 to 0/40 (p < 0.001), while the temperature change showed no clear effect ([run record](runs/2026-10-09-production-run.md)). **Next.** Connect a customer's own AI system and pilot it on one real regression.
+**Problem.** Teams that ship AI change prompts, models, temperature and tools every week, often several at once. When quality drops, an eval dashboard shows *that* a score moved, not which change caused it or whether the drop is real. **Who has it.** Every company that integrates AI: a telecom running a support assistant, a startup shipping an agent, a lab comparing model versions (target segments; none is a customer). **What Diablo does.** You ask a question. The investigator model (Claude Opus 5.5) designs a study for it: setups of the model under test, test cases each with a rule code applies to the reply, competing hypotheses and paired experiments. Code runs every case on every setup (Claude Haiku 4.5), checks every reply and computes the effect size, 95% confidence interval, exact McNemar test, Holm correction and an evidence grade. The model writes the answer but can never write a number. **Proof.** On production, Diablo found a planted cause: a shortened prompt took accuracy from 40/40 to 0/40 (p < 0.001), while a temperature change showed no clear effect ([run record](runs/2026-10-09-production-run.md)). A seeded benchmark of 45,000 simulated regressions shows that when Diablo names a cause it is right 97.3% of the time, against 71.7% for blaming the largest drop. **Next.** Connect a customer's own AI system and pilot on one real regression.
 
 ## 1. Value for the user
 
@@ -27,44 +27,43 @@ The CI is a paired bootstrap: 2,000 resamples, seed 1. Discordant pairs: E1 b = 
 
 ## 2. Prototype and use of AI
 
-**The core scenario works end to end in the browser:** ask a question; Diablo drafts hypotheses and experiments, runs them (simulated), analyses the evidence and concludes; replicate, flag a score, open the raw trace, print the report.
+**The core scenario works end to end on a real model:** sign in with Google, ask a question, and watch Diablo design the study, run it, compute the statistics and write a checked answer, usually in one to two minutes. The investigation is saved, and the workspace shows its research graph, evidence (every reply with its check) and a printable report.
 
 | Works today (live, tested) | Next (not built yet) |
 |---|---|
-| Investigation workspace (Overview, Graph, Evidence, Report, Session) and an experiment panel (design, config diff, effect, test, reproducibility) | Live engine run against a real model API (built and tested offline; needs a key) |
-| Statistics engine: Wilson, Newcombe, two-proportion z, Fisher exact, exact McNemar, seeded paired bootstrap, Cohen's h, Holm | Connector that runs a customer's AI system (API endpoint plus config) |
-| Validity rubric C1–C9 and an evidence-strength grade; "Not recorded" is never a pass | Persistent knowledge across investigations |
-| Verdicts and statuses derived from counts, never typed in | Sample-size planning before a run |
-| Rule-based demo agent (7 topics) and a seeded run simulator | Autonomous monitoring ("something changed; investigate") |
-| Report export (print/PDF, JSON), chart export (CSV, SVG) | |
-| **Also in the repo:** model-backed live engine at `/live` (Gemini or Z.ai GLM; disabled without a key, never faked); Python engine with a Gemini provider (`engine/`); Google sign-in with protected routes | |
+| Live investigation of any question: study design, paired runs on a real model, statistics, number-checked answer | Connector that runs a customer's own AI system (API endpoint plus config) |
+| Workspace for saved investigations: Overview, Graph, Evidence, Report, Session | Server-side storage and a knowledge base across investigations |
+| Statistics engine: Wilson, Newcombe, two-proportion z, Fisher exact, exact McNemar, seeded paired bootstrap, Cohen's h, Holm | Sample-size planning before a run |
+| Validity rubric C1–C9 and an evidence grade; verdicts derived from counts, never typed in | Autonomous monitoring ("something changed; investigate") |
+| Google sign-in; an `/admin` panel where the team switches the investigator between Claude and Gemini | |
 
-**What the AI contributes.** The reasoning model does an experienced evaluator's work:
+**What the AI contributes.** The investigator does an experienced evaluator's work:
 
-- turn a vague question into testable hypotheses, including a competing explanation;
-- choose the experiment that separates them (an ablation, a sweep, a paired comparison);
-- read the results and propose the next experiment;
-- write the report.
+- turns a vague question into testable, competing hypotheses;
+- designs the setups to compare and writes test cases with checkable answers;
+- explains the measured result in plain language and says what to do next.
 
-The system does everything numeric: it runs the target, counts outcomes and computes every rate, interval, p-value and verdict from those counts. The code enforces this: fixtures store counts only, `derive.ts` computes the rest at render time, and interpretation is set in a different typeface under an "Interpretation" label. In today's demo a rule-based agent plays the reasoning role; the app says "Demo data" on screen.
+**What the AI is not allowed to do.** It never scores a reply and never writes a number. Code applies each case's check, computes every rate, interval, p-value and verdict, and a grounding checker rejects any digit, percent sign or quantity word the model writes outside a `{{F1}}`-style placeholder; code fills those in from the fact table. On the first production run the checker caught the model writing "zero" and forced a rewrite.
 
 ## 3. Quality testing
 
-**Commands run on 9 Oct 2026:** `npm test` gave 122 passed (46 of them the planted-cause benchmark's, below); `npx playwright test` (production build) gave 40 passed; `npm run typecheck`, `npm run lint` and `npx next build` are clean.
+**Automated (9 Oct 2026):** 293 unit tests pass (`npm test`), including statistics checked against SciPy/statsmodels values to within 5×10⁻⁵, plan validation, the paired runner, the code checks and the grounding checker; an end-to-end browser suite with axe accessibility checks; `npm run typecheck` and `npm run lint` are clean.
 
-- **Statistics against references.** The Wilson, Newcombe, z-test, Fisher, McNemar and Holm results match SciPy/statsmodels values to within 5×10⁻⁵ (`src/lib/stats.test.ts`).
-- **Rubric and derivations.** Missing fields never pass; every CI contains its Δ; the simulator is deterministic.
-- **End to end.** Ask, run, replicate, flag, keyboard use, real 404s, corrupt-storage recovery, multi-page print; axe: 0 serious or critical issues on 18 routes, light and dark, 375 and 1440 px.
+**Real runs on production models.**
+
+1. **The first run was at ceiling.** Claude Opus 5.5 investigating Claude Haiku 4.5 on easy arithmetic: every setup scored 100%. Diablo reported "no measurable effect" and did not invent a cause. We made the items harder.
+2. **The rerun found the planted cause.** Shortened prompt: 40/40 → 0/40 (exact McNemar p < 0.001, supported). Temperature 0.2 → 1.0: 40/40 → 39/40, no clear effect (95% CI −7.5 to 0.0 pp). 123 model calls, 63 s, ≈ $0.20 ([run record](runs/2026-10-09-production-run.md)).
+3. **A user's own question.** "Why do some biodegradable plastics take years to decompose in landfills?" (Gemini 3.8 Flash investigating Gemini 3.5 Flash-Lite): a 12-case study with three setups. A plain-language prompt cut technical precision from 100% to 66.7%; an expert persona made no difference. An earlier run of the same question scored 100% in every setup, so we now instruct the investigator to write cases hard enough to separate the hypotheses.
 
 **Failure examples: what goes wrong without Diablo, and what it catches.** All are pinned in `submission-claims.test.ts`.
 
-1. **Fixing the wrong cause.** Long-context demo: the obvious hypothesis ("accuracy falls past 128k tokens") is *rejected*: −1.9 pp, CI −5.1 to +1.3. The competing one ("needle position matters") is *supported*: −10.0 pp, CI −14.3 to −6.0. A team that capped context length would have fixed nothing.
-2. **A significant result with no alternative tested.** Sycophancy demo: +8.5 pp, CI 1.6 to 15.3, p = 0.016, but no competing hypothesis was tested. C9 fails, and the evidence stays "Moderate".
+1. **Fixing the wrong cause.** Long-context test fixture: the obvious hypothesis ("accuracy falls past 128k tokens") is *rejected*: −1.9 pp, CI −5.1 to +1.3. The competing one ("needle position matters") is *supported*: −10.0 pp, CI −14.3 to −6.0. A team that capped context length would have fixed nothing.
+2. **A significant result with no alternative tested.** Sycophancy test fixture: +8.5 pp, CI 1.6 to 15.3, p = 0.016, but no competing hypothesis was tested. C9 fails, and the evidence stays "Moderate".
 3. **A lucky p-value.** A borderline effect (p ≈ 0.03) among two primary tests gets a C7 warning, because it does not survive Holm.
 4. **A result that does not replicate.** A reversed replication fails C8, and "Strong" drops to "Moderate".
 5. **A judge grading its own family.** C4 fails, and the evidence becomes "Weak".
 
-**Known failures of the prototype itself.** The demo agent recognises 7 topics by keyword; anything else becomes a labelled "Template draft". The Session tab declines questions its data cannot answer. Runs are simulated; tokens and cost show "Not recorded".
+**Known failures of the prototype itself.** The investigator sometimes writes cases too easy to tell the hypotheses apart (a ceiling, reported honestly as "no clear effect"). Checks are rules, so a correct but unusually phrased reply can fail; every reply is shown with its check so a reviewer can see it. The model under test is one configured model; there is no connector to a customer's system yet. Saved investigations live in the browser.
 
 **Compared with the current approach** (what each gives by default):
 
@@ -94,23 +93,17 @@ The system does everything numeric: it runs the target, counts outcomes and comp
 
 ## 4. Feasibility
 
-**Data requirements.** No training data and no fine-tuning. A customer provides:
+**Data requirements.** No training data and no fine-tuning. Today Diablo writes its own test cases per question. For a customer it needs:
 
 1. API access to the AI system and each version's config (model, prompt, temperature, tools);
-2. prompts from production logs or an existing eval set, at least 30 per arm (the demo uses 80 to 600);
-3. a scorer: a rule (exact match, JSON schema) or an LLM judge from another model family, checked against human labels (draft threshold: agreement ≥ 0.80).
+2. prompts from production logs or an eval set, ideally 30 or more per setup;
+3. a check per case: a rule (contains, exact number, word limit, JSON schema) or, later, a judge from another model family checked against human labels.
 
-**Running cost** (estimate; assumptions stated, GLM-5.3 list prices per 1M tokens: $1.40 input, $0.26 cached input, $4.40 output). Assume one investigation takes 12 reasoning steps, each with 10k new input tokens, 20k cached context and 2k output tokens:
+**Running cost.** Measured: the first full production investigation made 123 model calls and cost about **$0.20** at list price. Estimate for a long investigation (12 reasoning steps of 10k new input, 20k cached and 2k output tokens on Claude Opus 5.5 at $4 / $0.20 / $20 per 1M tokens): 0.12M × $4 + 0.24M × $0.20 + 0.024M × $20 ≈ **$1.01**. The customer's own model calls are extra; statistics run locally at no cost.
 
-- GLM-5.3: 0.12M × $1.40 + 0.24M × $0.26 + 0.024M × $4.40 = $0.168 + $0.062 + $0.106 ≈ **$0.34 per investigation**.
-- glm-5.3-flash ($0.15 / $0.03 / $0.50): $0.018 + $0.007 + $0.012 ≈ **$0.04**.
-- LLM judging of the worked example on flash: 320 outputs × (1k input + 100 output tokens) = 0.32M × $0.15 + 0.032M × $0.50 ≈ **$0.06**.
+**Stack.** Next.js 16 on Vercel, Google OAuth, Vercel Blob for the system setting. All data access goes through one typed `DataProvider` interface (`src/lib/data/provider.ts`), so the in-browser store can be swapped for a server backend.
 
-The customer's own model calls are extra. Statistics run locally at no cost.
-
-**Stack.** Next.js 16 on Vercel (live). All data access goes through one typed `DataProvider` interface (`src/lib/data/provider.ts`), so the in-browser mock can be swapped for a real backend.
-
-**Next step (plan).** Implement an engine-backed `DataProvider`. GLM-5.3 returns hypotheses and experiment designs as JSON, which is validated with the existing zod schemas. Runs call the target system, and `stats.ts` remains the only source of numbers. Then run the first investigation on a real open-weights model and publish the report.
+**Next step.** A connector for one customer's AI system, then a pilot on one real regression, measured against how that team decides today.
 
 ## 5. Originality
 

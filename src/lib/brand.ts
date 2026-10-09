@@ -1,7 +1,7 @@
 /**
  * Product name, legal identity and contact details.
  *
- * None of these are decided yet (see "Open decisions" in CHANGELOG-REDESIGN.md).
+ * None of these are decided yet.
  * Keep every user-facing occurrence of the name and every legal detail here, so
  * the final choice is a one-line change. `npm run check:release` fails while any
  * value is still the placeholder.

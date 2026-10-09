@@ -42,7 +42,6 @@ export default defineConfig({
       ANTHROPIC_API_KEY: "",
       ANTHROPIC_WORKSPACE_ID: "",
       GEMINI_API_KEY: "",
-      ZAI_API_KEY: "",
       DIABLO_LLM: "",
     },
   },

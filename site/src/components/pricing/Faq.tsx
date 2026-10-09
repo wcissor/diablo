@@ -10,16 +10,16 @@ const QA = [
     a: "No. The model proposes and explains; it never writes a number. Experiments are run, and every statistic is computed, by code from the recorded results.",
   },
   {
-    q: "Do I need an account?",
-    a: "No. Open the demo workspace without one, or continue with Google. The demo uses sample data and keeps nothing after you leave.",
+    q: "How do I sign in?",
+    a: "Only a Google account: continue with Google and ask your first question. There is no separate sign-up.",
   },
   {
     q: "What can I connect?",
-    a: "Not yet. Today Diablo works on the sample systems in the demo, with simulated runs. Connecting your own model, agent or AI app over its API comes next.",
+    a: "Not yet. Today Diablo designs and runs each study on a model we host. Connecting your own model, agent or AI app over its API comes next.",
   },
   {
     q: "Who pays for the model calls?",
-    a: "Nobody, for now: the demo’s runs are simulated. Once you connect your own system, experiments will call it with your keys, and your provider will bill those calls.",
+    a: "We do, during early access. Once you connect your own system, experiments will call it with your keys, and your provider will bill those calls.",
   },
   {
     q: "What counts as an investigation?",

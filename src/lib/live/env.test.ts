@@ -10,43 +10,39 @@ describe("live env: provider pick", () => {
     expect(c.problem).toBeNull();
   });
 
-  it("picks Gemini when its key exists, else Z.ai", () => {
+  it("picks Gemini when only its key exists", () => {
     expect(liveConfig({ GEMINI_API_KEY: "g" }).provider).toBe("gemini");
-    expect(liveConfig({ ZAI_API_KEY: "z" }).provider).toBe("zai");
-    expect(liveConfig({ GEMINI_API_KEY: "g", ZAI_API_KEY: "z" }).provider).toBe("gemini");
   });
 
-  it("prefers the Claude key over Gemini and Z.ai when several are set", () => {
+  it("prefers the Claude key over Gemini when both are set", () => {
     expect(liveConfig({ ANTHROPIC_API_KEY: "a" }).provider).toBe("anthropic");
-    expect(liveConfig({ ANTHROPIC_API_KEY: "a", GEMINI_API_KEY: "g", ZAI_API_KEY: "z" }).provider).toBe("anthropic");
-    expect(liveConfig({ ANTHROPIC_API_KEY: "a", ZAI_API_KEY: "z" }).provider).toBe("anthropic");
+    expect(liveConfig({ ANTHROPIC_API_KEY: "a", GEMINI_API_KEY: "g" }).provider).toBe("anthropic");
     expect(liveConfig({ ANTHROPIC_API_KEY: "  ", GEMINI_API_KEY: "g" }).provider).toBe("gemini");
   });
 
-  it("DIABLO_LLM=anthropic|gemini|zai chooses whatever else is set", () => {
-    const all = { ANTHROPIC_API_KEY: "a", GEMINI_API_KEY: "g", ZAI_API_KEY: "z" };
-    expect(liveConfig({ ...all, DIABLO_LLM: "gemini" }).provider).toBe("gemini");
-    expect(liveConfig({ ...all, DIABLO_LLM: "ZAI" }).provider).toBe("zai");
+  it("DIABLO_LLM=anthropic|gemini chooses whatever else is set", () => {
+    const all = { ANTHROPIC_API_KEY: "a", GEMINI_API_KEY: "g" };
+    expect(liveConfig({ ...all, DIABLO_LLM: "GEMINI" }).provider).toBe("gemini");
     expect(liveConfig({ GEMINI_API_KEY: "g", ANTHROPIC_API_KEY: "a", DIABLO_LLM: "anthropic" }).provider).toBe("anthropic");
     const missing = liveConfig({ DIABLO_LLM: "anthropic", GEMINI_API_KEY: "g" });
     expect(missing.provider).toBeNull();
     expect(missing.problem).toMatch(/ANTHROPIC_API_KEY/);
-    expect(liveConfig({ DIABLO_LLM: "claude", ANTHROPIC_API_KEY: "a" }).problem).toMatch(/"anthropic", "gemini", "zai"/);
+    expect(liveConfig({ DIABLO_LLM: "claude", ANTHROPIC_API_KEY: "a" }).problem).toMatch(/"anthropic", "gemini"/);
   });
 
   it("DIABLO_LLM chooses, and needs that provider's key", () => {
-    expect(liveConfig({ DIABLO_LLM: "zai", GEMINI_API_KEY: "g", ZAI_API_KEY: "z" }).provider).toBe("zai");
-    const missing = liveConfig({ DIABLO_LLM: "zai", GEMINI_API_KEY: "g" });
+    expect(liveConfig({ DIABLO_LLM: "gemini", ANTHROPIC_API_KEY: "a", GEMINI_API_KEY: "g" }).provider).toBe("gemini");
+    const missing = liveConfig({ DIABLO_LLM: "gemini", ANTHROPIC_API_KEY: "a" });
     expect(missing.provider).toBeNull();
-    expect(missing.problem).toMatch(/ZAI_API_KEY/);
+    expect(missing.problem).toMatch(/GEMINI_API_KEY/);
     expect(liveConfig({ DIABLO_LLM: "openai", GEMINI_API_KEY: "g" }).provider).toBeNull();
   });
 
   it("uses the provider's default models unless overridden, and refuses odd model ids", () => {
     const g = liveConfig({ GEMINI_API_KEY: "g" });
     expect([g.reasoningModel, g.targetModel]).toEqual([DEFAULT_MODELS.gemini.reasoning, DEFAULT_MODELS.gemini.target]);
-    const z = liveConfig({ ZAI_API_KEY: "z", DIABLO_TARGET_MODEL: "glm-4.5-flash" });
-    expect([z.reasoningModel, z.targetModel]).toEqual([DEFAULT_MODELS.zai.reasoning, "glm-4.5-flash"]);
+    const o = liveConfig({ GEMINI_API_KEY: "g", DIABLO_TARGET_MODEL: "gemini-3.5-flash" });
+    expect([o.reasoningModel, o.targetModel]).toEqual([DEFAULT_MODELS.gemini.reasoning, "gemini-3.5-flash"]);
     const bad = liveConfig({ GEMINI_API_KEY: "g", DIABLO_REASONING_MODEL: "../../v1/files" });
     expect(bad.provider).toBeNull();
     expect(bad.problem).toMatch(/DIABLO_REASONING_MODEL/);

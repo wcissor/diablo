@@ -4,14 +4,12 @@ import type { ProviderId } from "../types";
 import { anthropicLLM } from "./anthropic";
 import { geminiLLM } from "./gemini";
 import type { LLM } from "./types";
-import { zaiLLM } from "./zai";
 
 type Make = (opts: { apiKey: string; model: string; timeoutMs: number }) => LLM;
 
 const ADAPTERS: Record<ProviderId, Make> = {
   anthropic: (opts) => anthropicLLM({ ...opts, workspaceId: anthropicWorkspace() }),
   gemini: geminiLLM,
-  zai: zaiLLM,
 };
 
 /**

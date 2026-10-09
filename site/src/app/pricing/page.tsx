@@ -16,7 +16,7 @@ export default function PricingPage() {
   return (
     <>
       <PageHero eyebrow="Pricing" title="Free during early access.">
-        Today Diablo runs on sample systems in a demo workspace, and it costs nothing. These are the plans we intend to
+        Today Diablo investigates your questions on a real model, and it costs you nothing. These are the plans we intend to
         offer once you can connect your own AI.
       </PageHero>
 

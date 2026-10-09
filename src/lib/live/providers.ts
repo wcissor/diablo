@@ -24,15 +24,14 @@ import type { ProviderId } from "./types";
 export const DEFAULT_MODELS: Record<ProviderId, { reasoning: string; target: string }> = {
   anthropic: { reasoning: "claude-opus-5-5", target: "claude-haiku-4-5" },
   gemini: { reasoning: "gemini-3.8-flash", target: "gemini-3.5-flash-lite" },
-  zai: { reasoning: "glm-5.3", target: "glm-4.7-flash" },
 };
 
-export const PROVIDER_LABEL: Record<ProviderId, string> = { anthropic: "Claude API", gemini: "Gemini API", zai: "Z.ai GLM" };
+export const PROVIDER_LABEL: Record<ProviderId, string> = { anthropic: "Claude API", gemini: "Gemini API" };
 
-export const KEY_VAR: Record<ProviderId, string> = { anthropic: "ANTHROPIC_API_KEY", gemini: "GEMINI_API_KEY", zai: "ZAI_API_KEY" };
+export const KEY_VAR: Record<ProviderId, string> = { anthropic: "ANTHROPIC_API_KEY", gemini: "GEMINI_API_KEY" };
 
-/** Which key wins when several are set and DIABLO_LLM does not choose: Claude first (the team's choice), then Gemini, then Z.ai. */
-export const PROVIDER_ORDER: readonly ProviderId[] = ["anthropic", "gemini", "zai"];
+/** Which key wins when several are set and DIABLO_LLM does not choose: Claude first (the team's choice), then Gemini. */
+export const PROVIDER_ORDER: readonly ProviderId[] = ["anthropic", "gemini"];
 
 export const isProviderId = (v: string): v is ProviderId => (PROVIDER_ORDER as readonly string[]).includes(v);
 

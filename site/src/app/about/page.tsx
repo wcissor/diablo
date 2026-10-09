@@ -24,7 +24,7 @@ const ROADMAP = [
   {
     when: "Now",
     title: "A working loop, on sample systems",
-    body: "In the demo workspace: hypotheses, experiments, simulated runs, real statistics and a report.",
+    body: "Live on a real model: a study designed for your question, paired experiments, real statistics and a checked answer.",
   },
   { when: "Next", title: "Your own AI system", body: "A live reasoning model, and a connector that runs experiments on the AI you ship." },
   {

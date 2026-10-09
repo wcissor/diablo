@@ -7,7 +7,7 @@ import type { CallEstimate, LiveCaps } from "./budget";
 import type { LLMErrorKind } from "./llm/types";
 import type { Study } from "./study";
 
-export type ProviderId = "anthropic" | "gemini" | "zai";
+export type ProviderId = "anthropic" | "gemini";
 
 export interface AbuseLimits {
   /** Model calls per UTC day across all users of one server instance. */
