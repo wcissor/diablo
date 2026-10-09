@@ -14,18 +14,20 @@
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Diablo protocol | 41.0% (40.5 to 41.5) | 0.9% (0.8 to 1.0) | 58.1% (57.6 to 58.6) | 1.1% (0.9 to 1.3) | 97.3% of 15,184 |
 | A. Overall before/after | cannot attribute | 0% | 100% | 0% | never names one |
-| B. Unpaired tests + Holm | 31.7% (31.3 to 32.2) | 0.3% (0.3 to 0.4) | 67.9% (67.4 to 68.4) | 0.4% (0.3 to 0.5) | 98.6% of 11,586 |
+| B. Paired data, unpaired tests + Holm | 31.7% (31.3 to 32.2) | 0.3% (0.3 to 0.4) | 67.9% (67.4 to 68.4) | 0.4% (0.3 to 0.5) | 98.6% of 11,586 |
+| B′. Unpaired design + Holm | 33.1% (32.6 to 33.6) | 1.9% (1.7 to 2.0) | 65.1% (64.6 to 65.5) | 2.2% (2.0 to 2.6) | 93.2% of 12,782 |
 | C. Paired, no correction | 49.7% (49.2 to 50.3) | 2.4% (2.3 to 2.6) | 47.8% (47.3 to 48.3) | 4.1% (3.7 to 4.5) | 93.5% of 19,152 |
 | D. Largest observed drop | 84.5% (84.1 to 84.9) | 13.1% (12.7 to 13.4) | 2.4% (2.3 to 2.6) | 81.0% (80.2 to 81.8) | 71.7% of 42,416 |
 
-The last column pools all 45,000 scenarios (20.0% of them with no cause): of the scenarios where the method named something, the share where it named exactly the true cause.
+The last column pools all 45,000 scenarios (20.0% of them with no cause): of the scenarios where the method named something, the share where it named exactly the true cause. B′ is the one row on different data: the same scenarios run with fresh items in every arm (see Methods).
 
 What this says:
 
-- **Diablo's claims hold up.** When it named a cause, it was exactly the true cause in 97.3% of cases. When no factor had any effect, it named a cause in 1.1% of scenarios. Picking the largest observed drop (D, a stand-in for an untested eyeball or LLM judgment) named a cause in 81.0% of those scenarios, and its named causes were right 71.7% of the time.
+- **Diablo's claims hold up.** When the protocol named a cause, it was exactly the true cause in 97.3% of cases. When no factor had any effect, it named a cause in 1.1% of scenarios. Untested judgment (D: blame the largest observed drop) named a cause in 81.0% of those scenarios, and its named causes were right 71.7% of the time.
+- **The benchmark caught a gap in the app, now fixed.** The app's hypothesis verdicts used to say "supported" whenever the confidence interval excluded zero, and showed a failed Holm check (C7) only as a warning. On the 2,250 scenarios where the benchmark also computes every interval, that rule blamed an innocent factor in 3.5% of scenarios with a cause and raised false alarms in 8.2% of those without one: more than paired tests with no correction at all (C: 1.8% and 4.7%). A verdict now also needs the effect to survive Holm, and the app's verdicts blamed exactly the protocol's factors in 2,250 of those 2,250 scenarios (see "The app's verdicts").
 - **The price is power.** Diablo named the true cause in 41.0% of scenarios that had one; D named it in 84.5%, because D names a factor whenever any factor's accuracy fell. When the evidence is thin, Diablo says "no attributable cause" instead of guessing (58.1% of scenarios with a cause), which is a request for more items rather than a wrong answer. The tables below show where that happens: small effects with few items.
-- **Pairing buys power.** On identical counts, the unpaired tests (B) named the true cause in 31.7% of scenarios with a cause, against Diablo's 41.0%. B's lower error rates (0.3% innocent factors blamed, 0.4% false alarms, against Diablo's 0.9% and 1.1%) come from the same mistake: treating correlated arms as independent overstates the noise, so B is too cautious across the board.
-- **The correction buys trust.** Paired tests without Holm (C) find more (49.7%), but blame an innocent factor 2.8 times as often as Diablo (2.4% against 0.9%) and raise 3.8 times as many false alarms when nothing changed (4.1% against 1.1%).
+- **Pairing buys power.** The fair comparison is a design that never pairs (B′: fresh items in every arm, the same tests). It named the true cause in 33.1% against Diablo's 41.0%, blamed an innocent factor in 1.9% against 0.9%, and raised 2.2% false alarms against 1.1%. B′ does find more than Diablo in 3 of the 12 drop-and-n rows of the power table (5 pp at n = 40, 5 pp at n = 80, 10 pp at n = 40), where Diablo names the cause in at most 7.1%: with that little evidence, the exact McNemar test's caution costs more than pairing gains (the sensitivity table shows the same at ρ = 0). B analyses Diablo's paired counts as if the arms were independent, which overstates the noise: it named the true cause in 31.7% of scenarios with a cause, and its lower error rates (0.3% innocent factors blamed, 0.4% false alarms) are the same over-caution.
+- **The correction buys trust.** Paired tests without Holm (C) find more (49.7%), but blame an innocent factor 2.8 times (2.3 to 3.3) as often as Diablo (2.4% against 0.9%) and raise 3.8 times (2.8 to 5.1) as many false alarms when nothing changed (4.1% against 1.1%). The ranges come from the two rates' 95% Monte Carlo intervals: these seeds give one draw, and the false-alarm rates rest on a few hundred events.
 - **A before/after comparison (A) cannot attribute at all.** It flagged the overall drop in 51.7% of scenarios with a cause, and never says which change to revert.
 
 ## Reproduce
@@ -62,19 +64,20 @@ Each scenario is an update of an AI system from v1 to v2 that changed K candidat
 
 ## Methods compared
 
-All five run on the same simulated data (A on the v1 and v2 runs, the others on the per-factor experiments). Every statistic is computed by the app's own `src/lib/stats.ts`; the significance level is the validity rubric's (`THRESHOLDS.alpha = 0.05`). A factor is only ever blamed if its accuracy fell, because the question is what caused a drop.
+Five run on the same simulated data (A on the v1 and v2 runs, the others on the per-factor experiments); B′ runs on the same scenarios with fresh items in every arm. Every statistic is computed by the app's own `src/lib/stats.ts`; the significance level is the validity rubric's (`THRESHOLDS.alpha = 0.05`). A factor is only ever blamed if its accuracy fell, because the question is what caused a drop.
 
 | Method | Rule |
 | --- | --- |
 | **Diablo protocol** | One experiment per factor on the same items; exact McNemar on each; Holm across the K experiments; blame a factor only if its Holm-adjusted p < 0.05 and its accuracy fell. Otherwise: no attributable cause. |
 | **A. Overall before/after** | Compare v1 with v2 only (exact McNemar on the same items, its best case). It can say that accuracy fell, never which factor caused it, so it attributes nothing. |
-| **B. Unpaired tests + Holm** | The same per-factor experiments, analysed as if the arms were independent: pooled two-proportion z-test per factor, Holm across the K tests, same blame rule. |
+| **B. Paired data, unpaired tests + Holm** | The same paired per-factor experiments, analysed as if the arms were independent: pooled two-proportion z-test per factor, Holm across the K tests, same blame rule. This misreads the design (B′ below is the proper unpaired design). |
+| **B′. Unpaired design + Holm** | A different design for the same scenario: every arm runs on fresh items, so the arms really are independent. Then B's rule: pooled two-proportion z-test per factor, Holm across the K tests, same blame rule. |
 | **C. Paired, no correction** | The same paired exact McNemar tests, but each judged at p < 0.05 on its own (no multiple-comparison correction); every factor that passes and fell is blamed. |
-| **D. Largest observed drop** | Blame the factor whose experiment shows the largest observed drop, if any factor dropped at all; no test. Ties go to the factor listed first (the true cause's position is random). |
+| **D. Largest observed drop** | Untested judgment: blame the factor whose experiment shows the largest observed drop, if any factor dropped at all; no test. Ties go to the factor listed first (the true cause's position is random). |
 
 Scoring, per scenario: **right** means the method blamed exactly the true cause; **innocent factor blamed** means it blamed at least one factor that changed nothing (with or without the true cause); **nothing named** means it reported no attributable cause although one existed. When no factor had any effect, naming anything is a **false alarm**; with no true cause, every attribution is false, so this rate is also the false discovery rate.
 
-The Diablo protocol here is the measuring half of an investigation: it assumes the reasoning half proposed the right candidate factors and designed one clean experiment per factor. `src/lib/bench/bridge.test.ts` checks that it agrees with the app's own `holmAdjusted` and `analyzeRun` on an investigation built from the same counts. In the app, this rule is check C7 (the Holm-adjusted p) on a hypothesis that predicts a decrease; the app's per-hypothesis verdict uses the confidence interval instead (see the CI section for how often the two calls agree).
+The Diablo protocol here is the measuring half of an investigation: it assumes the reasoning half proposed the right candidate factors and designed one clean experiment per factor. `src/lib/bench/bridge.test.ts` checks that it agrees with the app's own `holmAdjusted` and `analyzeRun` on an investigation built from the same counts. In the app, a hypothesis that predicts a drop is "supported" when its paired-bootstrap interval lies entirely below zero and the result survives the Holm correction (check C7); "The app's verdicts" below checks that this names the same factors as the protocol.
 
 ## Results
 
@@ -82,67 +85,67 @@ The Diablo protocol here is the measuring half of an investigation: it assumes t
 
 Pooled over K = 2, 3, 4 (3,000 scenarios per row). The last column is the overall before/after test (A): how often it even detects that accuracy fell.
 
-| Drop | n | Diablo | B. Unpaired | C. Uncorrected | D. Largest drop | A. Overall detects the drop |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 5 pp | 40 | 1.4% | 0.9% | 3.5% | 51.0% | 4.9% |
-| 5 pp | 80 | 4.4% | 1.6% | 10.1% | 59.5% | 10.5% |
-| 5 pp | 160 | 13.6% | 5.4% | 22.1% | 73.9% | 22.6% |
-| 10 pp | 40 | 7.1% | 4.6% | 14.6% | 71.8% | 15.7% |
-| 10 pp | 80 | 23.9% | 12.6% | 37.7% | 85.7% | 38.8% |
-| 10 pp | 160 | 56.0% | 34.5% | 68.8% | 96.0% | 72.8% |
-| 15 pp | 40 | 20.6% | 13.2% | 34.4% | 87.2% | 35.9% |
-| 15 pp | 80 | 55.4% | 37.4% | 70.4% | 96.3% | 71.3% |
-| 15 pp | 160 | 89.2% | 77.5% | 92.9% | 99.5% | 95.4% |
-| 20 pp | 40 | 39.6% | 28.1% | 56.7% | 93.9% | 60.2% |
-| 20 pp | 80 | 83.1% | 68.3% | 89.2% | 99.3% | 92.3% |
-| 20 pp | 160 | 97.9% | 96.9% | 96.5% | 100.0% | 99.7% |
+| Drop | n | Diablo | B. Unpaired test | B′. Unpaired design | C. Uncorrected | D. Largest drop | A. Overall detects the drop |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 5 pp | 40 | 1.4% | 0.9% | 2.8% | 3.5% | 51.0% | 4.9% |
+| 5 pp | 80 | 4.4% | 1.6% | 4.9% | 10.1% | 59.5% | 10.5% |
+| 5 pp | 160 | 13.6% | 5.4% | 9.4% | 22.1% | 73.9% | 22.6% |
+| 10 pp | 40 | 7.1% | 4.6% | 8.4% | 14.6% | 71.8% | 15.7% |
+| 10 pp | 80 | 23.9% | 12.6% | 19.1% | 37.7% | 85.7% | 38.8% |
+| 10 pp | 160 | 56.0% | 34.5% | 37.5% | 68.8% | 96.0% | 72.8% |
+| 15 pp | 40 | 20.6% | 13.2% | 18.3% | 34.4% | 87.2% | 35.9% |
+| 15 pp | 80 | 55.4% | 37.4% | 38.9% | 70.4% | 96.3% | 71.3% |
+| 15 pp | 160 | 89.2% | 77.5% | 71.2% | 92.9% | 99.5% | 95.4% |
+| 20 pp | 40 | 39.6% | 28.1% | 33.5% | 56.7% | 93.9% | 60.2% |
+| 20 pp | 80 | 83.1% | 68.3% | 62.8% | 89.2% | 99.3% | 92.3% |
+| 20 pp | 160 | 97.9% | 96.9% | 90.1% | 96.5% | 100.0% | 99.7% |
 
 ### Innocent factor blamed, by size of the drop and items per arm
 
 Same scenarios. Diablo blames an innocent factor in at most 1.4% of scenarios in any row. D's rate peaks at 37.5% (a 5 pp drop, n = 40), exactly where the evidence is weakest.
 
-| Drop | n | Diablo | B. Unpaired | C. Uncorrected | D. Largest drop |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| 5 pp | 40 | 0.4% | 0.3% | 1.7% | 37.5% |
-| 5 pp | 80 | 1.1% | 0.3% | 3.1% | 33.7% |
-| 5 pp | 160 | 1.0% | 0.3% | 2.9% | 23.3% |
-| 10 pp | 40 | 0.4% | 0.3% | 1.8% | 23.6% |
-| 10 pp | 80 | 0.8% | 0.2% | 2.6% | 12.8% |
-| 10 pp | 160 | 1.3% | 0.2% | 2.6% | 3.8% |
-| 15 pp | 40 | 0.5% | 0.4% | 1.8% | 11.6% |
-| 15 pp | 80 | 1.1% | 0.3% | 3.0% | 3.5% |
-| 15 pp | 160 | 1.3% | 0.4% | 3.2% | 0.5% |
-| 20 pp | 40 | 0.4% | 0.2% | 1.5% | 5.8% |
-| 20 pp | 80 | 0.9% | 0.5% | 2.1% | 0.7% |
-| 20 pp | 160 | 1.4% | 0.6% | 3.2% | 0.0% |
+| Drop | n | Diablo | B. Unpaired test | B′. Unpaired design | C. Uncorrected | D. Largest drop |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 5 pp | 40 | 0.4% | 0.3% | 1.5% | 1.7% | 37.5% |
+| 5 pp | 80 | 1.1% | 0.3% | 1.4% | 3.1% | 33.7% |
+| 5 pp | 160 | 1.0% | 0.3% | 1.8% | 2.9% | 23.3% |
+| 10 pp | 40 | 0.4% | 0.3% | 1.5% | 1.8% | 23.6% |
+| 10 pp | 80 | 0.8% | 0.2% | 1.9% | 2.6% | 12.8% |
+| 10 pp | 160 | 1.3% | 0.2% | 1.7% | 2.6% | 3.8% |
+| 15 pp | 40 | 0.5% | 0.4% | 2.2% | 1.8% | 11.6% |
+| 15 pp | 80 | 1.1% | 0.3% | 2.0% | 3.0% | 3.5% |
+| 15 pp | 160 | 1.3% | 0.4% | 2.4% | 3.2% | 0.5% |
+| 20 pp | 40 | 0.4% | 0.2% | 1.2% | 1.5% | 5.8% |
+| 20 pp | 80 | 0.9% | 0.5% | 2.2% | 2.1% | 0.7% |
+| 20 pp | 160 | 1.4% | 0.6% | 2.5% | 3.2% | 0.0% |
 
 ### When nothing caused the drop
 
 Scenarios with no causal factor (1,000 per row). Any cause named is a false alarm. The last column is how often the overall test (A) reports a significant drop that no factor caused.
 
-| K | n | Diablo | B. Unpaired | C. Uncorrected | D. Largest drop | A. Overall flags a drop |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 2 | 40 | 0.7% | 0.6% | 1.5% | 69.9% | 0.7% |
-| 2 | 80 | 1.1% | 0.4% | 2.0% | 67.7% | 1.1% |
-| 2 | 160 | 1.1% | 0.2% | 2.3% | 69.6% | 1.6% |
-| 3 | 40 | 1.1% | 0.4% | 3.5% | 81.6% | 0.3% |
-| 3 | 80 | 1.2% | 0.4% | 3.6% | 83.8% | 0.9% |
-| 3 | 160 | 1.4% | 0.5% | 5.3% | 85.0% | 1.9% |
-| 4 | 40 | 0.6% | 0.5% | 4.9% | 89.8% | 1.0% |
-| 4 | 80 | 1.0% | 0.1% | 5.6% | 89.4% | 1.6% |
-| 4 | 160 | 1.5% | 0.4% | 7.8% | 92.2% | 1.7% |
+| K | n | Diablo | B. Unpaired test | B′. Unpaired design | C. Uncorrected | D. Largest drop | A. Overall flags a drop |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 2 | 40 | 0.7% | 0.6% | 3.0% | 1.5% | 69.9% | 0.7% |
+| 2 | 80 | 1.1% | 0.4% | 1.7% | 2.0% | 67.7% | 1.1% |
+| 2 | 160 | 1.1% | 0.2% | 2.5% | 2.3% | 69.6% | 1.6% |
+| 3 | 40 | 1.1% | 0.4% | 2.7% | 3.5% | 81.6% | 0.3% |
+| 3 | 80 | 1.2% | 0.4% | 2.5% | 3.6% | 83.8% | 0.9% |
+| 3 | 160 | 1.4% | 0.5% | 2.0% | 5.3% | 85.0% | 1.9% |
+| 4 | 40 | 0.6% | 0.5% | 2.0% | 4.9% | 89.8% | 1.0% |
+| 4 | 80 | 1.0% | 0.1% | 2.0% | 5.6% | 89.4% | 1.6% |
+| 4 | 160 | 1.5% | 0.4% | 1.8% | 7.8% | 92.2% | 1.7% |
 
-Without a correction, false alarms grow with the number of factors tested (C: 1.9% at K = 2, 4.1% at K = 3, 6.1% at K = 4). With Holm they stay at or below 1.5% in every row (Diablo, B), well inside the 5% familywise bound. D names a culprit in 67.7% to 92.2% of these scenarios: whenever any factor's accuracy happened to fall.
+Without a correction, false alarms grow with the number of factors tested (C: 1.9% at K = 2, 4.1% at K = 3, 6.1% at K = 4). With Holm they stay at or below 1.5% in every row for Diablo and B, well inside the 5% familywise bound; B′, with Holm on a design that really is unpaired, reaches 3.0%. D names a culprit in 67.7% to 92.2% of these scenarios: whenever any factor's accuracy happened to fall.
 
 ### By number of factors changed
 
 Scenarios with a cause, pooled over drop sizes and n (12,000 per row): right cause named / innocent factor blamed.
 
-| K | Diablo | B. Unpaired | C. Uncorrected | D. Largest drop |
-| --- | ---: | ---: | ---: | ---: |
-| 2 | 44.4% / 0.9% | 34.6% / 0.4% | 50.4% / 1.3% | 87.9% / 8.2% |
-| 3 | 40.6% / 0.9% | 31.5% / 0.3% | 49.6% / 2.5% | 84.4% / 13.4% |
-| 4 | 38.1% / 0.8% | 29.0% / 0.3% | 49.3% / 3.6% | 81.2% / 17.6% |
+| K | Diablo | B. Unpaired test | B′. Unpaired design | C. Uncorrected | D. Largest drop |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 2 | 44.4% / 0.9% | 34.6% / 0.4% | 36.7% / 1.5% | 50.4% / 1.3% | 87.9% / 8.2% |
+| 3 | 40.6% / 0.9% | 31.5% / 0.3% | 32.4% / 2.0% | 49.6% / 2.5% | 84.4% / 13.4% |
+| 4 | 38.1% / 0.8% | 29.0% / 0.3% | 30.1% / 2.1% | 49.3% / 3.6% | 81.2% / 17.6% |
 
 ### Items needed
 
@@ -168,17 +171,30 @@ Every experiment's 95% CI for Δ, computed by the app's own `analyzeRun` (paired
 | 160 | 96.7% (94.9 to 97.8), 600 CIs | 14.9 pp | 95.9% (94.9 to 96.8), 1,650 CIs | 13.7 pp |
 | all | 95.5% (94.4 to 96.4), 1,800 CIs | 21.5 pp | 96.1% (95.6 to 96.6), 4,950 CIs | 19.7 pp |
 
-Read candidly: coverage is within Monte Carlo error of 95% except for no-effect intervals at n = 40 (above 95%). Above 95% means the intervals are a little conservative (wider than they need to be); below means a little too narrow.
-
-The app's hypothesis verdicts call an effect found when this interval excludes 0; the protocol attributes on the exact test. Before any correction, the two calls agreed on 97.2% of the 6,750 experiments checked.
+Read candidly: every row is within 1.7 pp of the nominal 95%. One row, no-effect intervals at n = 40 (96.5%), is outside its own 95% Monte Carlo interval. With 6 rows checked, at least one falls outside by chance about 26% of the time, and these 50 replicates per cell are a single draw, so read it as a hint rather than a finding. Pooled over n, the no-effect intervals cover 96.1% (95.6 to 96.6), above 95%: a little wider than they need to be (conservative).
 
 Coverage does not change any attribution, which rests on the exact McNemar test and Holm, but it is what makes the reported interval honest. Note the width: at n = 40 the average interval spans 27.2 pp, which is why small samples rarely support a claim.
+
+### The app's verdicts
+
+The protocol is a rule on counts; the app shows a verdict on each hypothesis (`verdictFor` in `src/lib/data/derive.ts`). On the first 50 replicates of every cell (2,250 scenarios, 450 of them with no cause), where every experiment's interval is computed anyway, the benchmark builds the investigation the app would hold (one hypothesis per factor, "changing it lowered accuracy", each tested by one paired experiment) and counts a factor as blamed when the app marks its hypothesis "supported".
+
+| Rule, on these scenarios | Right cause named | Innocent factor blamed | Cause named when none exists | When it named a cause, it was the right one |
+| --- | ---: | ---: | ---: | ---: |
+| **App verdicts**: interval excludes zero and the result survives Holm | 40.4% (38.1 to 42.7) | 0.8% (0.5 to 1.3) | 0.9% (0.3 to 2.3) | 97.6% of 745 |
+| Diablo protocol | 40.4% (38.1 to 42.7) | 0.8% (0.5 to 1.3) | 0.9% (0.3 to 2.3) | 97.6% of 745 |
+| App verdicts before 9 Oct 2026: interval alone, a failed Holm check only warned | 53.4% (51.1 to 55.7) | 3.5% (2.7 to 4.5) | 8.2% (6.0 to 11.1) | 90.6% of 1,061 |
+| C. Paired, no correction | 48.9% (46.6 to 51.2) | 1.8% (1.3 to 2.6) | 4.7% (3.1 to 7.0) | 94.2% of 934 |
+
+The app's verdicts blamed exactly the factors the protocol blamed in 2,250 of the 2,250 scenarios.
+
+Until 9 Oct 2026 the verdict ignored the correction: "supported" whenever the interval excluded zero, with a failed Holm check (C7) shown only as a warning that lowered the evidence strength. That is an uncorrected test with the bootstrap interval in place of the exact test, and it behaved like one: 8.2% false alarms and 3.5% innocent factors blamed, more than C's 4.7% and 1.8%. This benchmark is how that was found; the verdict now requires the correction.
 
 ### Sensitivity: how correlated the items are
 
 One cell (K = 3, a 10 pp drop, n = 80) with the item correlation ρ fixed instead of drawn, 1,000 replicates each: right cause named / innocent factor blamed.
 
-| ρ | Diablo | B. Unpaired | C. Uncorrected | D. Largest drop |
+| ρ | Diablo | B. Unpaired test | C. Uncorrected | D. Largest drop |
 | --- | ---: | ---: | ---: | ---: |
 | 0 | 12.2% / 0.6% | 17.1% / 0.9% | 23.1% / 3.0% | 74.4% / 23.8% |
 | 0.5 | 19.1% / 0.7% | 13.0% / 0.2% | 32.3% / 2.1% | 83.3% / 15.3% |
@@ -191,7 +207,7 @@ With independent items (ρ = 0) there is no pairing to exploit, and the unpaired
 
 The first replicate, in the order searched, where the methods disagree in each way. Diablo's own failures are included.
 
-### 1. Eyeballing and uncorrected tests blame a factor that changed nothing
+### 1. Blaming the largest drop and uncorrected tests both pick a factor that changed nothing
 
 One factor really cost 10 pp, but by chance an innocent factor shows the largest drop, and its uncorrected p-value is below 0.05. A team following either baseline reverts the wrong change and keeps the real cause. Diablo does not have the evidence to name anything, and says so: no attributable cause, collect more items.
 
@@ -208,7 +224,7 @@ Overall, v1 against v2: 59/80 → 50/80 (−11.3 pp), exact McNemar p = 0.14.
 
 - Diablo protocol: no attributable cause (misses the true cause).
 - A. Overall before/after: no significant drop; names no cause.
-- B. Unpaired tests + Holm: no attributable cause (misses the true cause).
+- B. Paired data, unpaired tests + Holm: no attributable cause (misses the true cause).
 - C. Paired, no correction: retrieval top-k (wrong: blames a factor that changed nothing).
 - D. Largest observed drop: retrieval top-k (wrong: blames a factor that changed nothing).
 
@@ -229,7 +245,7 @@ Overall, v1 against v2: 66/80 → 59/80 (−8.8 pp), exact McNemar p = 0.12.
 
 - Diablo protocol: retrieval top-k (right).
 - A. Overall before/after: no significant drop; names no cause.
-- B. Unpaired tests + Holm: no attributable cause (misses the true cause).
+- B. Paired data, unpaired tests + Holm: no attributable cause (misses the true cause).
 - C. Paired, no correction: system prompt and retrieval top-k (wrong: blames a factor that changed nothing).
 - D. Largest observed drop: retrieval top-k (right).
 
@@ -250,7 +266,7 @@ Overall, v1 against v2: 65/80 → 63/80 (−2.5 pp), exact McNemar p = 0.77.
 
 - Diablo protocol: no attributable cause (right: nothing to find).
 - A. Overall before/after: no significant drop; names no cause.
-- B. Unpaired tests + Holm: no attributable cause (right: nothing to find).
+- B. Paired data, unpaired tests + Holm: no attributable cause (right: nothing to find).
 - C. Paired, no correction: temperature (false alarm).
 - D. Largest observed drop: temperature (false alarm).
 
@@ -270,7 +286,7 @@ Overall, v1 against v2: 59/80 → 56/80 (−3.8 pp), exact McNemar p = 0.65.
 
 - Diablo protocol: system prompt (right).
 - A. Overall before/after: no significant drop; names no cause.
-- B. Unpaired tests + Holm: no attributable cause (misses the true cause).
+- B. Paired data, unpaired tests + Holm: no attributable cause (misses the true cause).
 - C. Paired, no correction: system prompt (right).
 - D. Largest observed drop: system prompt (right).
 
@@ -290,7 +306,7 @@ Overall, v1 against v2: 35/40 → 30/40 (−12.5 pp), exact McNemar p = 0.23.
 
 - Diablo protocol: no attributable cause (misses the true cause).
 - A. Overall before/after: no significant drop; names no cause.
-- B. Unpaired tests + Holm: no attributable cause (misses the true cause).
+- B. Paired data, unpaired tests + Holm: no attributable cause (misses the true cause).
 - C. Paired, no correction: no attributable cause (misses the true cause).
 - D. Largest observed drop: temperature (right).
 
@@ -311,7 +327,7 @@ Overall, v1 against v2: 129/160 → 116/160 (−8.1 pp), exact McNemar p = 0.047
 
 - Diablo protocol: system prompt (wrong: blames a factor that changed nothing).
 - A. Overall before/after: flags a significant drop; names no cause.
-- B. Unpaired tests + Holm: system prompt (wrong: blames a factor that changed nothing).
+- B. Paired data, unpaired tests + Holm: system prompt (wrong: blames a factor that changed nothing).
 - C. Paired, no correction: system prompt (wrong: blames a factor that changed nothing).
 - D. Largest observed drop: system prompt (wrong: blames a factor that changed nothing).
 
@@ -332,7 +348,7 @@ Overall, v1 against v2: 140/160 → 132/160 (−5.0 pp), exact McNemar p = 0.13.
 
 - Diablo protocol: model snapshot (false alarm).
 - A. Overall before/after: no significant drop; names no cause.
-- B. Unpaired tests + Holm: no attributable cause (right: nothing to find).
+- B. Paired data, unpaired tests + Holm: no attributable cause (right: nothing to find).
 - C. Paired, no correction: model snapshot (false alarm).
 - D. Largest observed drop: model snapshot (false alarm).
 
@@ -343,7 +359,8 @@ Overall, v1 against v2: 140/160 → 132/160 (−5.0 pp), exact McNemar p = 0.13.
 - **One cause or none, no interactions.** Real regressions can have two causes, or come from two factors only in combination. A one-factor-at-a-time design cannot see an interaction; a factorial design can, and is not benchmarked here.
 - **Every scenario is analysed, drop or not.** A team investigates only when v2 visibly scored lower. Restricting the no-cause scenarios to the 4,030 where v2 happened to score below v1 changes the false-alarm rate from 1.1% to 0.9% for Diablo, 4.1% to 4.2% for C and 81.0% to 80.8% for D: the per-factor experiments are fresh runs, so a chance overall drop says little about them.
 - **Fixed effect per scenario.** The causal factor lowers every item's chance by the same amount on the latent scale; effects concentrated in a slice of items are not simulated.
-- **Baselines are simplified.** D stands for an untested judgment (by a person or an LLM) that blames the biggest observed drop; real judgment may use other cues, for better or worse. C and B are the obvious shortcuts, not the worst possible practice.
+- **Baselines are simplified.** D is a simple heuristic (blame the biggest observed drop); it is not a measurement of how a person or an LLM judges, and real judgment may use other cues, for better or worse. B misreads paired data; B′ is the proper unpaired design. B, B′ and C are the obvious shortcuts, not the worst possible practice.
+- **The app's verdicts are checked on a subset.** The app's verdict needs every experiment's bootstrap interval, so it is computed on the first 50 replicates of each cell (see "The app's verdicts"), not on all 1,000. The full-size rows are the protocol's.
 - **Monte Carlo error.** With 1,000 replicates per cell, a single cell's rate is within about ±3.1 pp (95%, worst case); pooled rates are tighter (the headline brackets). Seeds are fixed, so the numbers are exactly reproducible, not re-randomised.
 - **Pseudo-random numbers.** mulberry32 has 32 bits of state, so streams from different seeds can overlap in places; with every scenario seeded separately this does not bias the rates, but it is not a cryptographic-quality generator.
 
@@ -352,4 +369,4 @@ Overall, v1 against v2: 140/160 → 132/160 (−5.0 pp), exact McNemar p = 0.13.
 - `src/lib/bench/benchmark.test.ts` reruns the full benchmark, compares the result with this file byte for byte, and pins every headline number quoted in `docs/SUBMISSION.md` and `docs/SCORECARD.md`.
 - `src/lib/bench/scenario.test.ts` checks the generator: the same seed gives the same counts, the planted drop is realised on average, items are correlated, and the true cause sits in each position equally often.
 - `src/lib/bench/methods.test.ts` checks each method on hand-built counts, including ties and the direction rule.
-- `src/lib/bench/bridge.test.ts` checks that the protocol's Holm-adjusted p-values equal the app's `holmAdjusted` on an investigation built from the same counts, and that the coverage check uses the app's own `analyzeRun` interval.
+- `src/lib/bench/bridge.test.ts` checks that the protocol's Holm-adjusted p-values equal the app's `holmAdjusted` on an investigation built from the same counts, that the app's `verdictFor` names the protocol's factors on those investigations, and that the coverage check uses the app's own `analyzeRun` interval.

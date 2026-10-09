@@ -15,10 +15,19 @@ export const METHOD_IDS: MethodId[] = ["diablo", "overall", "unpaired", "uncorre
 export const METHOD_LABEL: Record<MethodId, string> = {
   diablo: "Diablo protocol",
   overall: "A. Overall before/after",
-  unpaired: "B. Unpaired tests + Holm",
+  unpaired: "B. Paired data, unpaired tests + Holm",
   uncorrected: "C. Paired, no correction",
   largest: "D. Largest observed drop",
 };
+
+/**
+ * B′ is not a rule on the same counts but a different design: the same
+ * scenario run with fresh items in every arm (see `freshItemsFor`), analysed
+ * with B's unpaired tests and Holm. It is what a team that never pairs would do.
+ */
+export const UNPAIRED_DESIGN_LABEL = "B′. Unpaired design + Holm";
+export const UNPAIRED_DESIGN_RULE =
+  "A different design for the same scenario: every arm runs on fresh items, so the arms really are independent. Then B's rule: pooled two-proportion z-test per factor, Holm across the K tests, same blame rule.";
 
 export const METHOD_RULE: Record<MethodId, string> = {
   diablo:
@@ -26,11 +35,11 @@ export const METHOD_RULE: Record<MethodId, string> = {
   overall:
     "Compare v1 with v2 only (exact McNemar on the same items, its best case). It can say that accuracy fell, never which factor caused it, so it attributes nothing.",
   unpaired:
-    "The same per-factor experiments, analysed as if the arms were independent: pooled two-proportion z-test per factor, Holm across the K tests, same blame rule.",
+    "The same paired per-factor experiments, analysed as if the arms were independent: pooled two-proportion z-test per factor, Holm across the K tests, same blame rule. This misreads the design (B′ below is the proper unpaired design).",
   uncorrected:
     "The same paired exact McNemar tests, but each judged at p < 0.05 on its own (no multiple-comparison correction); every factor that passes and fell is blamed.",
   largest:
-    "Blame the factor whose experiment shows the largest observed drop, if any factor dropped at all; no test. Ties go to the factor listed first (the true cause's position is random).",
+    "Untested judgment: blame the factor whose experiment shows the largest observed drop, if any factor dropped at all; no test. Ties go to the factor listed first (the true cause's position is random).",
 };
 
 export interface Attribution {

@@ -14,6 +14,8 @@ import {
   pool,
   poolCoverage,
   poolDetected,
+  poolUnpairedDesign,
+  poolVerdicts,
   SENSITIVITY,
   withCause,
   type BenchResult,
@@ -22,17 +24,38 @@ import {
   type Tally,
 } from "./benchmark";
 import type { Analysis, Example } from "./examples";
-import { METHOD_IDS, METHOD_LABEL, METHOD_RULE, type MethodId, type Outcome } from "./methods";
+import {
+  METHOD_IDS,
+  METHOD_LABEL,
+  METHOD_RULE,
+  UNPAIRED_DESIGN_LABEL,
+  UNPAIRED_DESIGN_RULE,
+  type MethodId,
+  type Outcome,
+} from "./methods";
 import { cellKey, GRID, NUISANCE, type Cell } from "./scenario";
 
 const ATTRIBUTING: MethodId[] = ["diablo", "unpaired", "uncorrected", "largest"];
 const SHORT: Record<MethodId, string> = {
   diablo: "Diablo",
   overall: "A. Overall",
-  unpaired: "B. Unpaired",
+  unpaired: "B. Unpaired test",
   uncorrected: "C. Uncorrected",
   largest: "D. Largest drop",
 };
+
+/** A column of the pooled result tables: a method on the paired data, or B′ (its own design). */
+interface Column {
+  short: string;
+  tally: (result: BenchResult, keep: CellFilter) => Tally;
+}
+const COLUMNS: Column[] = [
+  { short: SHORT.diablo, tally: (r, k) => pool(r, "diablo", k) },
+  { short: SHORT.unpaired, tally: (r, k) => pool(r, "unpaired", k) },
+  { short: "B′. Unpaired design", tally: poolUnpairedDesign },
+  { short: SHORT.uncorrected, tally: (r, k) => pool(r, "uncorrected", k) },
+  { short: SHORT.largest, tally: (r, k) => pool(r, "largest", k) },
+];
 
 const int = (x: number) => x.toLocaleString("en-US");
 const pct = (k: number, n: number) => (n ? formatPct(k / n) : "–");
@@ -56,35 +79,68 @@ export function namedRight(t: Tally): { named: number; right: number } {
   return { named: t.correct + t.wrong + t.falseAlarm, right: t.correct };
 }
 
+export interface Split {
+  cause: Tally;
+  none: Tally;
+  all: Tally;
+}
+
 export interface Headline {
   scenarios: number;
   withCause: number;
   noCause: number;
-  method: Record<MethodId, { cause: Tally; none: Tally; all: Tally }>;
+  method: Record<MethodId, Split>;
+  /** B′, the unpaired design, on the same scenarios run with fresh items. */
+  unpairedDesign: Split;
   overallDetected: { detected: number; scenarios: number };
   overallFalseAlarm: { detected: number; scenarios: number };
 }
 
+const split = (tally: (keep: CellFilter) => Tally): Split => ({
+  cause: tally(withCause),
+  none: tally(noCause),
+  all: tally(() => true),
+});
+
 export function headline(result: BenchResult): Headline {
-  const method = Object.fromEntries(
-    METHOD_IDS.map((m) => [
-      m,
-      { cause: pool(result, m, withCause), none: pool(result, m, noCause), all: pool(result, m, () => true) },
-    ]),
-  ) as Headline["method"];
+  const method = Object.fromEntries(METHOD_IDS.map((m) => [m, split((keep) => pool(result, m, keep))])) as Headline["method"];
   return {
     scenarios: method.diablo.all.scenarios,
     withCause: method.diablo.cause.scenarios,
     noCause: method.diablo.none.scenarios,
     method,
+    unpairedDesign: split((keep) => poolUnpairedDesign(result, keep)),
     overallDetected: poolDetected(result, withCause),
     overallFalseAlarm: poolDetected(result, noCause),
   };
 }
 
+/**
+ * How many times `a` is `b` (both k of n), with the range the two 95% Wilson
+ * intervals allow (low a / high b to high a / low b), so a ratio that rests
+ * on a few hundred events is not quoted more precisely than it is known.
+ */
+export function ratioRange(a: { k: number; n: number }, b: { k: number; n: number }): { point: number; lo: number; hi: number } {
+  const [aLo, aHi] = wilson(a.k, a.n);
+  const [bLo, bHi] = wilson(b.k, b.n);
+  return { point: a.k / a.n / (b.k / b.n), lo: aLo / bHi, hi: aHi / bLo };
+}
+
 /* ── Sections ──────────────────────────────────────────────────── */
 
-function headlineSection(h: Headline): string {
+function headlineRow(label: string, t: Split): string {
+  const nr = namedRight(t.all);
+  return row([
+    label,
+    pctCI(t.cause.correct, t.cause.scenarios),
+    pctCI(t.cause.wrong, t.cause.scenarios),
+    pctCI(t.cause.missed, t.cause.scenarios),
+    pctCI(t.none.falseAlarm, t.none.scenarios),
+    `${pct(nr.right, nr.named)} of ${int(nr.named)}`,
+  ]);
+}
+
+function headlineSection(result: BenchResult, h: Headline): string {
   const d = h.method.diablo;
   const D = h.method.largest;
   const C = h.method.uncorrected;
@@ -106,52 +162,84 @@ function headlineSection(h: Headline): string {
       ],
       ["---", "---:", "---:", "---:", "---:", "---:"],
     ),
-    ...METHOD_IDS.map((m) => {
-      const t = h.method[m];
-      const nr = namedRight(t.all);
-      if (m === "overall") return row([METHOD_LABEL[m], "cannot attribute", "0%", "100%", "0%", "never names one"]);
-      return row([
-        METHOD_LABEL[m],
-        pctCI(t.cause.correct, t.cause.scenarios),
-        pctCI(t.cause.wrong, t.cause.scenarios),
-        pctCI(t.cause.missed, t.cause.scenarios),
-        pctCI(t.none.falseAlarm, t.none.scenarios),
-        `${pct(nr.right, nr.named)} of ${int(nr.named)}`,
-      ]);
+    ...METHOD_IDS.flatMap((m) => {
+      if (m === "overall") return [row([METHOD_LABEL[m], "cannot attribute", "0%", "100%", "0%", "never names one"])];
+      const out = [headlineRow(METHOD_LABEL[m], h.method[m])];
+      if (m === "unpaired") out.push(headlineRow(UNPAIRED_DESIGN_LABEL, h.unpairedDesign));
+      return out;
     }),
     "",
-    `The last column pools all ${int(h.scenarios)} scenarios (${pct(h.noCause, h.scenarios)} of them with no cause): of the scenarios where the method named something, the share where it named exactly the true cause.`,
+    `The last column pools all ${int(h.scenarios)} scenarios (${pct(h.noCause, h.scenarios)} of them with no cause): of the scenarios where the method named something, the share where it named exactly the true cause. B′ is the one row on different data: the same scenarios run with fresh items in every arm (see Methods).`,
     "",
     "What this says:",
     "",
-    `- **Diablo's claims hold up.** When it named a cause, it was exactly the true cause in ${pct(dn.right, dn.named)} of cases. When no factor had any effect, it named a cause in ${pct(d.none.falseAlarm, d.none.scenarios)} of scenarios. Picking the largest observed drop (D, a stand-in for an untested eyeball or LLM judgment) named a cause in ${pct(D.none.falseAlarm, D.none.scenarios)} of those scenarios, and its named causes were right ${pct(Dn.right, Dn.named)} of the time.`,
+    `- **Diablo's claims hold up.** When the protocol named a cause, it was exactly the true cause in ${pct(dn.right, dn.named)} of cases. When no factor had any effect, it named a cause in ${pct(d.none.falseAlarm, d.none.scenarios)} of scenarios. Untested judgment (D: blame the largest observed drop) named a cause in ${pct(D.none.falseAlarm, D.none.scenarios)} of those scenarios, and its named causes were right ${pct(Dn.right, Dn.named)} of the time.`,
+    verdictBullet(result),
     `- **The price is power.** Diablo named the true cause in ${pct(d.cause.correct, d.cause.scenarios)} of scenarios that had one; D named it in ${pct(D.cause.correct, D.cause.scenarios)}, because D names a factor whenever any factor's accuracy fell. When the evidence is thin, Diablo says "no attributable cause" instead of guessing (${pct(d.cause.missed, d.cause.scenarios)} of scenarios with a cause), which is a request for more items rather than a wrong answer. The tables below show where that happens: small effects with few items.`,
-    pairingBullet(h),
-    `- **The correction buys trust.** Paired tests without Holm (C) find more (${pct(C.cause.correct, C.cause.scenarios)}), but blame an innocent factor ${ratio(C.cause.wrong / C.cause.scenarios, d.cause.wrong / d.cause.scenarios)} as often as Diablo (${pct(C.cause.wrong, C.cause.scenarios)} against ${pct(d.cause.wrong, d.cause.scenarios)}) and raise ${ratio(C.none.falseAlarm / C.none.scenarios, d.none.falseAlarm / d.none.scenarios)} as many false alarms when nothing changed (${pct(C.none.falseAlarm, C.none.scenarios)} against ${pct(d.none.falseAlarm, d.none.scenarios)}).`,
+    pairingBullet(result, h),
+    `- **The correction buys trust.** Paired tests without Holm (C) find more (${pct(C.cause.correct, C.cause.scenarios)}), but blame an innocent factor ${ratio({ k: C.cause.wrong, n: C.cause.scenarios }, { k: d.cause.wrong, n: d.cause.scenarios })} as often as Diablo (${pct(C.cause.wrong, C.cause.scenarios)} against ${pct(d.cause.wrong, d.cause.scenarios)}) and raise ${ratio({ k: C.none.falseAlarm, n: C.none.scenarios }, { k: d.none.falseAlarm, n: d.none.scenarios })} as many false alarms when nothing changed (${pct(C.none.falseAlarm, C.none.scenarios)} against ${pct(d.none.falseAlarm, d.none.scenarios)}). The ranges come from the two rates' 95% Monte Carlo intervals: these seeds give one draw, and the false-alarm rates rest on a few hundred events.`,
     `- **A before/after comparison (A) cannot attribute at all.** It flagged the overall drop in ${pct(h.overallDetected.detected, h.overallDetected.scenarios)} of scenarios with a cause, and never says which change to revert.`,
   ];
   return lines.join("\n");
 }
 
-function pairingBullet(h: Headline): string {
+function pairingBullet(result: BenchResult, h: Headline): string {
   const d = h.method.diablo;
   const B = h.method.unpaired;
-  const found = `On identical counts, the unpaired tests (B) named the true cause in ${pct(B.cause.correct, B.cause.scenarios)} of scenarios with a cause, against Diablo's ${pct(d.cause.correct, d.cause.scenarios)}.`;
-  const rate = (t: Tally, k: "wrong" | "falseAlarm", base: Tally) => t[k] / base.scenarios;
-  const quieter =
-    rate(B.cause, "wrong", B.cause) < rate(d.cause, "wrong", d.cause) &&
-    rate(B.none, "falseAlarm", B.none) < rate(d.none, "falseAlarm", d.none);
-  const errors = quieter
-    ? ` B's lower error rates (${pct(B.cause.wrong, B.cause.scenarios)} innocent factors blamed, ${pct(B.none.falseAlarm, B.none.scenarios)} false alarms, against Diablo's ${pct(d.cause.wrong, d.cause.scenarios)} and ${pct(d.none.falseAlarm, d.none.scenarios)}) come from the same mistake: treating correlated arms as independent overstates the noise, so B is too cautious across the board.`
-    : "";
-  const label = B.cause.correct < d.cause.correct ? "Pairing buys power." : "Pairing did not buy power here.";
-  return `- **${label}** ${found}${errors}`;
+  const P = h.unpairedDesign;
+  const rate = (t: Tally, k: "correct" | "wrong" | "falseAlarm") => t[k] / t.scenarios;
+  const misread = `B analyses Diablo's paired counts as if the arms were independent, which overstates the noise: it named the true cause in ${pct(B.cause.correct, B.cause.scenarios)} of scenarios with a cause${
+    rate(B.cause, "wrong") < rate(d.cause, "wrong") && rate(B.none, "falseAlarm") < rate(d.none, "falseAlarm")
+      ? `, and its lower error rates (${pct(B.cause.wrong, B.cause.scenarios)} innocent factors blamed, ${pct(B.none.falseAlarm, B.none.scenarios)} false alarms) are the same over-caution`
+      : ""
+  }.`;
+  // Where a proper unpaired design does better than the paired one.
+  const rows = causeRows().filter((c) => {
+    const keep = byCell(c);
+    return rate(poolUnpairedDesign(result, keep), "correct") > rate(pool(result, "diablo", keep), "correct");
+  });
+  const maxDiablo = Math.max(...rows.map((c) => rate(pool(result, "diablo", byCell(c)), "correct")));
+  const where = rows.length
+    ? ` B′ does find more than Diablo in ${rows.length} of the ${causeRows().length} drop-and-n rows of the power table (${rows.map((c) => `${c.effectPP} pp at n = ${c.n}`).join(", ")}), where Diablo names the cause in at most ${formatPct(maxDiablo)}: with that little evidence, the exact McNemar test's caution costs more than pairing gains (the sensitivity table shows the same at ρ = 0).`
+    : " B′ finds less than Diablo in every drop-and-n row of the power table.";
+  const fair = `The fair comparison is a design that never pairs (B′: fresh items in every arm, the same tests). It named the true cause in ${pct(P.cause.correct, P.cause.scenarios)} against Diablo's ${pct(d.cause.correct, d.cause.scenarios)}, blamed an innocent factor in ${pct(P.cause.wrong, P.cause.scenarios)} against ${pct(d.cause.wrong, d.cause.scenarios)}, and raised ${pct(P.none.falseAlarm, P.none.scenarios)} false alarms against ${pct(d.none.falseAlarm, d.none.scenarios)}.${where}`;
+  const label = rate(P.cause, "correct") < rate(d.cause, "correct") ? "Pairing buys power." : "Pairing did not buy power here.";
+  return `- **${label}** ${fair} ${misread}`;
 }
 
-function ratio(a: number, b: number): string {
-  if (!(b > 0)) return "far more often";
-  const r = a / b;
-  return `${r.toFixed(1)} times`;
+/** "2.7 times (2.3 to 3.2)": the ratio of two rates and the range their 95% Monte Carlo intervals allow. */
+function ratio(a: { k: number; n: number }, b: { k: number; n: number }): string {
+  if (!(b.k > 0)) return "far more often";
+  const r = ratioRange(a, b);
+  return `${r.point.toFixed(1)} times (${r.lo.toFixed(1)} to ${r.hi.toFixed(1)})`;
+}
+
+/** The app's own verdicts, pooled over the coverage replicates: all, with a cause, without one. */
+function verdictSplits(result: BenchResult) {
+  const all = poolVerdicts(result, () => true);
+  const cause = poolVerdicts(result, withCause);
+  const none = poolVerdicts(result, noCause);
+  const of = (k: "protocol" | "app" | "intervalOnly" | "uncorrected"): Split => ({ cause: cause[k], none: none[k], all: all[k] });
+  return {
+    scenarios: all.app.scenarios,
+    matches: all.appMatchesProtocol,
+    protocol: of("protocol"),
+    app: of("app"),
+    intervalOnly: of("intervalOnly"),
+    uncorrected: of("uncorrected"),
+  };
+}
+
+const more = (a: number, b: number) => (a > b ? "more than" : a < b ? "fewer than" : "as many as");
+
+/** The app's own verdicts against the protocol, and the rule they replaced. */
+function verdictBullet(result: BenchResult): string {
+  const v = verdictSplits(result);
+  const old = v.intervalOnly;
+  const C = v.uncorrected;
+  const fa = (t: Split) => t.none.falseAlarm / t.none.scenarios;
+  const wrong = (t: Split) => t.cause.wrong / t.cause.scenarios;
+  return `- **The benchmark caught a gap in the app, now fixed.** The app's hypothesis verdicts used to say "supported" whenever the confidence interval excluded zero, and showed a failed Holm check (C7) only as a warning. On the ${int(v.scenarios)} scenarios where the benchmark also computes every interval, that rule blamed an innocent factor in ${pct(old.cause.wrong, old.cause.scenarios)} of scenarios with a cause and raised false alarms in ${pct(old.none.falseAlarm, old.none.scenarios)} of those without one: ${more(fa(old), fa(C))} paired tests with no correction at all (C: ${pct(C.cause.wrong, C.cause.scenarios)} and ${pct(C.none.falseAlarm, C.none.scenarios)}${wrong(old) > wrong(C) ? "" : ", though C blamed innocent factors at least as often"}). A verdict now also needs the effect to survive Holm, and the app's verdicts blamed exactly the protocol's factors in ${int(v.matches)} of those ${int(v.scenarios)} scenarios (see "The app's verdicts").`;
 }
 
 function reproduceSection(result: BenchResult): string {
@@ -198,16 +286,20 @@ function methodsSection(): string {
   return [
     "## Methods compared",
     "",
-    "All five run on the same simulated data (A on the v1 and v2 runs, the others on the per-factor experiments). Every statistic is computed by the app's own `src/lib/stats.ts`; the significance level is the validity rubric's (`THRESHOLDS.alpha = " +
+    "Five run on the same simulated data (A on the v1 and v2 runs, the others on the per-factor experiments); B′ runs on the same scenarios with fresh items in every arm. Every statistic is computed by the app's own `src/lib/stats.ts`; the significance level is the validity rubric's (`THRESHOLDS.alpha = " +
       THRESHOLDS.alpha +
       "`). A factor is only ever blamed if its accuracy fell, because the question is what caused a drop.",
     "",
     header(["Method", "Rule"], ["---", "---"]),
-    ...METHOD_IDS.map((m) => row([`**${METHOD_LABEL[m]}**`, METHOD_RULE[m]])),
+    ...METHOD_IDS.flatMap((m) => {
+      const out = [row([`**${METHOD_LABEL[m]}**`, METHOD_RULE[m]])];
+      if (m === "unpaired") out.push(row([`**${UNPAIRED_DESIGN_LABEL}**`, UNPAIRED_DESIGN_RULE]));
+      return out;
+    }),
     "",
     "Scoring, per scenario: **right** means the method blamed exactly the true cause; **innocent factor blamed** means it blamed at least one factor that changed nothing (with or without the true cause); **nothing named** means it reported no attributable cause although one existed. When no factor had any effect, naming anything is a **false alarm**; with no true cause, every attribution is false, so this rate is also the false discovery rate.",
     "",
-    "The Diablo protocol here is the measuring half of an investigation: it assumes the reasoning half proposed the right candidate factors and designed one clean experiment per factor. `src/lib/bench/bridge.test.ts` checks that it agrees with the app's own `holmAdjusted` and `analyzeRun` on an investigation built from the same counts. In the app, this rule is check C7 (the Holm-adjusted p) on a hypothesis that predicts a decrease; the app's per-hypothesis verdict uses the confidence interval instead (see the CI section for how often the two calls agree).",
+    "The Diablo protocol here is the measuring half of an investigation: it assumes the reasoning half proposed the right candidate factors and designed one clean experiment per factor. `src/lib/bench/bridge.test.ts` checks that it agrees with the app's own `holmAdjusted` and `analyzeRun` on an investigation built from the same counts. In the app, a hypothesis that predicts a drop is \"supported\" when its paired-bootstrap interval lies entirely below zero and the result survives the Holm correction (check C7); \"The app's verdicts\" below checks that this names the same factors as the protocol.",
   ].join("\n");
 }
 
@@ -234,12 +326,14 @@ function nullSummary(result: BenchResult): string {
   const cByK = GRID.K.map((K) => at("uncorrected", K));
   const grows = cByK.every((x, i) => i === 0 || x > cByK[i - 1]);
   const holmMax = Math.max(...perRow("diablo"), ...perRow("unpaired"));
+  const designRows = GRID.K.flatMap((K) => GRID.n.map((n) => rateOf(poolUnpairedDesign(result, byCell({ K, effectPP: 0, n })), "falseAlarm")));
+  const designMax = Math.max(...designRows);
   const d = perRow("largest");
   const parts = [
     grows
       ? `Without a correction, false alarms grow with the number of factors tested (C: ${cByK.map((x, i) => `${formatPct(x)} at K = ${GRID.K[i]}`).join(", ")}).`
       : `Without a correction (C), false alarms run at ${cByK.map((x, i) => `${formatPct(x)} at K = ${GRID.K[i]}`).join(", ")}.`,
-    `With Holm they stay at or below ${formatPct(holmMax)} in every row (Diablo, B), well inside the 5% familywise bound.`,
+    `With Holm they stay at or below ${formatPct(holmMax)} in every row for Diablo and B${holmMax < THRESHOLDS.alpha / 2 ? ", well inside" : holmMax < THRESHOLDS.alpha ? ", inside" : ", but not always inside"} the 5% familywise bound; B′, with Holm on a design that really is unpaired, reaches ${formatPct(designMax)}${designMax < THRESHOLDS.alpha ? "" : ", above that bound"}.`,
     `D names a culprit in ${formatPct(Math.min(...d))} to ${formatPct(Math.max(...d))} of these scenarios: whenever any factor's accuracy happened to fall.`,
   ];
   return parts.join(" ");
@@ -259,7 +353,7 @@ function powerSection(result: BenchResult): string {
     "",
     `Pooled over K = ${GRID.K.join(", ")} (${int(GRID.K.length * result.config.reps)} scenarios per row). The last column is the overall before/after test (A): how often it even detects that accuracy fell.`,
     "",
-    header(["Drop", "n", ...ATTRIBUTING.map((m) => SHORT[m]), "A. Overall detects the drop"]),
+    header(["Drop", "n", ...COLUMNS.map((c) => c.short), "A. Overall detects the drop"]),
   ];
   for (const effectPP of GRID.effectPP.filter((d) => d > 0)) {
     for (const n of GRID.n) {
@@ -269,8 +363,8 @@ function powerSection(result: BenchResult): string {
         row([
           `${effectPP} pp`,
           n,
-          ...ATTRIBUTING.map((m) => {
-            const t = pool(result, m, f);
+          ...COLUMNS.map((c) => {
+            const t = c.tally(result, f);
             return pct(t.correct, t.scenarios);
           }),
           pct(det.detected, det.scenarios),
@@ -284,7 +378,7 @@ function powerSection(result: BenchResult): string {
     "",
     `Same scenarios. ${wrongSummary(result)}`,
     "",
-    header(["Drop", "n", ...ATTRIBUTING.map((m) => SHORT[m])]),
+    header(["Drop", "n", ...COLUMNS.map((c) => c.short)]),
   );
   for (const effectPP of GRID.effectPP.filter((d) => d > 0)) {
     for (const n of GRID.n) {
@@ -293,8 +387,8 @@ function powerSection(result: BenchResult): string {
         row([
           `${effectPP} pp`,
           n,
-          ...ATTRIBUTING.map((m) => {
-            const t = pool(result, m, f);
+          ...COLUMNS.map((c) => {
+            const t = c.tally(result, f);
             return pct(t.wrong, t.scenarios);
           }),
         ]),
@@ -310,7 +404,7 @@ function nullSection(result: BenchResult): string {
     "",
     `Scenarios with no causal factor (${int(result.config.reps)} per row). Any cause named is a false alarm. The last column is how often the overall test (A) reports a significant drop that no factor caused.`,
     "",
-    header(["K", "n", ...ATTRIBUTING.map((m) => SHORT[m]), "A. Overall flags a drop"]),
+    header(["K", "n", ...COLUMNS.map((c) => c.short), "A. Overall flags a drop"]),
   ];
   for (const K of GRID.K) {
     for (const n of GRID.n) {
@@ -320,8 +414,8 @@ function nullSection(result: BenchResult): string {
         row([
           K,
           n,
-          ...ATTRIBUTING.map((m) => {
-            const t = pool(result, m, f);
+          ...COLUMNS.map((c) => {
+            const t = c.tally(result, f);
             return pct(t.falseAlarm, t.scenarios);
           }),
           pct(det.detected, det.scenarios),
@@ -342,15 +436,15 @@ function kSection(result: BenchResult): string {
     "",
     `Scenarios with a cause, pooled over drop sizes and n (${int((GRID.effectPP.length - 1) * GRID.n.length * result.config.reps)} per row): right cause named / innocent factor blamed.`,
     "",
-    header(["K", ...ATTRIBUTING.map((m) => SHORT[m])]),
+    header(["K", ...COLUMNS.map((c) => c.short)]),
   ];
   for (const K of GRID.K) {
     const f = and(withCause, byCell({ K }));
     lines.push(
       row([
         K,
-        ...ATTRIBUTING.map((m) => {
-          const t = pool(result, m, f);
+        ...COLUMNS.map((c) => {
+          const t = c.tally(result, f);
           return `${pct(t.correct, t.scenarios)} / ${pct(t.wrong, t.scenarios)}`;
         }),
       ]),
@@ -409,15 +503,33 @@ function coverageSection(result: BenchResult): string {
     header(["n", "True cause: coverage", "Mean width", "Factor with no effect: coverage", "Mean width"]),
   ];
   const off: string[] = [];
-  const all = poolCoverage(result, () => true);
+  let maxGap = 0;
+  let checked = 0;
+  const pooled: string[] = [];
   const rows: [string, CellFilter][] = [...GRID.n.map((n): [string, CellFilter] => [String(n), byCell({ n })]), ["all", () => true]];
   for (const [label, f] of rows) {
     const c = poolCoverage(result, f);
     const cause = coverageCell(c.cause);
     const inert = coverageCell(c.inert);
     if (label !== "all") {
-      if (cause.verdict !== "consistent") off.push(`true-cause intervals at n = ${label} (${cause.verdict} 95%)`);
-      if (inert.verdict !== "consistent") off.push(`no-effect intervals at n = ${label} (${inert.verdict} 95%)`);
+      for (const [name, b, cell] of [
+        ["true-cause", c.cause, cause],
+        ["no-effect", c.inert, inert],
+      ] as const) {
+        checked++;
+        maxGap = Math.max(maxGap, Math.abs(b.covered / b.intervals - 0.95));
+        if (cell.verdict !== "consistent") off.push(`${name} intervals at n = ${label} (${formatPct(b.covered / b.intervals)})`);
+      }
+    } else {
+      for (const [name, b, cell] of [
+        ["true-cause", c.cause, cause],
+        ["no-effect", c.inert, inert],
+      ] as const) {
+        if (cell.verdict === "consistent") continue;
+        pooled.push(
+          `the ${name} intervals cover ${pctCI(b.covered, b.intervals)}, ${cell.verdict} 95%: ${cell.verdict === "above" ? "a little wider than they need to be (conservative)" : "a little too narrow"}`,
+        );
+      }
     }
     lines.push(
       row([
@@ -429,17 +541,61 @@ function coverageSection(result: BenchResult): string {
       ]),
     );
   }
+  const chance = 1 - 0.95 ** checked;
+  const outside = off.length
+    ? ` ${off.length === 1 ? `One row, ${off[0]}, is` : `${off.length} rows (${off.join(", ")}) are`} outside ${off.length === 1 ? "its" : "their"} own 95% Monte Carlo interval. With ${checked} rows checked, at least one falls outside by chance about ${Math.round(chance * 100)}% of the time, and these ${int(result.config.coverageReps)} replicates per cell are a single draw, so read ${off.length === 1 ? "it" : "them"} as a hint rather than a finding.`
+    : " Every row is inside its own 95% Monte Carlo interval.";
+  const pooledNote = pooled.length
+    ? ` Pooled over n, ${pooled.join("; ")}.`
+    : " Pooled over n, both kinds are within Monte Carlo error of 95%.";
   lines.push(
     "",
-    off.length
-      ? `Read candidly: coverage is within Monte Carlo error of 95% except for ${off.join(" and ")}. Above 95% means the intervals are a little conservative (wider than they need to be); below means a little too narrow.`
-      : "Read candidly: every row is within Monte Carlo error of the nominal 95%.",
-    "",
-    `The app's hypothesis verdicts call an effect found when this interval excludes 0; the protocol attributes on the exact test. Before any correction, the two calls agreed on ${pct(all.callsAgree, all.cause.intervals + all.inert.intervals)} of the ${int(all.cause.intervals + all.inert.intervals)} experiments checked.`,
+    `Read candidly: every row is within ${(100 * maxGap).toFixed(1)} pp of the nominal 95%.${outside}${pooledNote}`,
     "",
     `Coverage does not change any attribution, which rests on the exact McNemar test and Holm, but it is what makes the reported interval honest. Note the width: at n = ${GRID.n[0]} the average interval spans ${smallWidth(result)} pp, which is why small samples rarely support a claim.`,
   );
   return lines.join("\n");
+}
+
+function verdictSection(result: BenchResult): string {
+  const v = verdictSplits(result);
+  const rowFor = (label: string, t: Split) => {
+    const nr = namedRight(t.all);
+    return row([
+      label,
+      pctCI(t.cause.correct, t.cause.scenarios),
+      pctCI(t.cause.wrong, t.cause.scenarios),
+      pctCI(t.none.falseAlarm, t.none.scenarios),
+      `${pct(nr.right, nr.named)} of ${int(nr.named)}`,
+    ]);
+  };
+  const old = v.intervalOnly;
+  const C = v.uncorrected;
+  const differ = v.scenarios - v.matches;
+  return [
+    "### The app's verdicts",
+    "",
+    `The protocol is a rule on counts; the app shows a verdict on each hypothesis (\`verdictFor\` in \`src/lib/data/derive.ts\`). On the first ${int(result.config.coverageReps)} replicates of every cell (${int(v.scenarios)} scenarios, ${int(v.app.none.scenarios)} of them with no cause), where every experiment's interval is computed anyway, the benchmark builds the investigation the app would hold (one hypothesis per factor, "changing it lowered accuracy", each tested by one paired experiment) and counts a factor as blamed when the app marks its hypothesis "supported".`,
+    "",
+    header(
+      ["Rule, on these scenarios", "Right cause named", "Innocent factor blamed", "Cause named when none exists", "When it named a cause, it was the right one"],
+      ["---", "---:", "---:", "---:", "---:"],
+    ),
+    rowFor("**App verdicts**: interval excludes zero and the result survives Holm", v.app),
+    rowFor("Diablo protocol", v.protocol),
+    rowFor("App verdicts before 9 Oct 2026: interval alone, a failed Holm check only warned", old),
+    rowFor("C. Paired, no correction", C),
+    "",
+    `The app's verdicts blamed exactly the factors the protocol blamed in ${int(v.matches)} of the ${int(v.scenarios)} scenarios${
+      differ ? `; in the other ${int(differ)}, the protocol blamed a factor whose interval still included zero, which the app does not mark supported` : ""
+    }.`,
+    "",
+    `Until 9 Oct 2026 the verdict ignored the correction: "supported" whenever the interval excluded zero, with a failed Holm check (C7) shown only as a warning that lowered the evidence strength. That is an uncorrected test with the bootstrap interval in place of the exact test, and it behaved like one: ${pct(old.none.falseAlarm, old.none.scenarios)} false alarms and ${pct(old.cause.wrong, old.cause.scenarios)} innocent factors blamed, ${
+      old.none.falseAlarm / old.none.scenarios > C.none.falseAlarm / C.none.scenarios && old.cause.wrong / old.cause.scenarios > C.cause.wrong / C.cause.scenarios
+        ? "more than"
+        : "against"
+    } C's ${pct(C.none.falseAlarm, C.none.scenarios)} and ${pct(C.cause.wrong, C.cause.scenarios)}. This benchmark is how that was found; the verdict now requires the correction.`,
+  ].join("\n");
 }
 
 function sensitivitySection(result: BenchResult): string {
@@ -565,7 +721,8 @@ function limitationsSection(result: BenchResult): string {
     "- **One cause or none, no interactions.** Real regressions can have two causes, or come from two factors only in combination. A one-factor-at-a-time design cannot see an interaction; a factorial design can, and is not benchmarked here.",
     `- **Every scenario is analysed, drop or not.** A team investigates only when v2 visibly scored lower. Restricting the no-cause scenarios to the ${int(fa("diablo").dropSeen)} where v2 happened to score below v1 changes the false-alarm rate from ${conditioned("diablo")} for Diablo, ${conditioned("uncorrected")} for C and ${conditioned("largest")} for D: the per-factor experiments are fresh runs, so a chance overall drop says little about them.`,
     "- **Fixed effect per scenario.** The causal factor lowers every item's chance by the same amount on the latent scale; effects concentrated in a slice of items are not simulated.",
-    "- **Baselines are simplified.** D stands for an untested judgment (by a person or an LLM) that blames the biggest observed drop; real judgment may use other cues, for better or worse. C and B are the obvious shortcuts, not the worst possible practice.",
+    "- **Baselines are simplified.** D is a simple heuristic (blame the biggest observed drop); it is not a measurement of how a person or an LLM judges, and real judgment may use other cues, for better or worse. B misreads paired data; B′ is the proper unpaired design. B, B′ and C are the obvious shortcuts, not the worst possible practice.",
+    `- **The app's verdicts are checked on a subset.** The app's verdict needs every experiment's bootstrap interval, so it is computed on the first ${int(result.config.coverageReps)} replicates of each cell (see "The app's verdicts"), not on all ${int(result.config.reps)}. The full-size rows are the protocol's.`,
     "- **Monte Carlo error.** " +
       `With ${int(result.config.reps)} replicates per cell, a single cell's rate is within about ±${(196 * Math.sqrt(0.25 / result.config.reps)).toFixed(1)} pp (95%, worst case); pooled rates are tighter (the headline brackets). Seeds are fixed, so the numbers are exactly reproducible, not re-randomised.`,
     "- **Pseudo-random numbers.** mulberry32 has 32 bits of state, so streams from different seeds can overlap in places; with every scenario seeded separately this does not bias the rates, but it is not a cryptographic-quality generator.",
@@ -579,7 +736,7 @@ function checksSection(): string {
     "- `src/lib/bench/benchmark.test.ts` reruns the full benchmark, compares the result with this file byte for byte, and pins every headline number quoted in `docs/SUBMISSION.md` and `docs/SCORECARD.md`.",
     "- `src/lib/bench/scenario.test.ts` checks the generator: the same seed gives the same counts, the planted drop is realised on average, items are correlated, and the true cause sits in each position equally often.",
     "- `src/lib/bench/methods.test.ts` checks each method on hand-built counts, including ties and the direction rule.",
-    "- `src/lib/bench/bridge.test.ts` checks that the protocol's Holm-adjusted p-values equal the app's `holmAdjusted` on an investigation built from the same counts, and that the coverage check uses the app's own `analyzeRun` interval.",
+    "- `src/lib/bench/bridge.test.ts` checks that the protocol's Holm-adjusted p-values equal the app's `holmAdjusted` on an investigation built from the same counts, that the app's `verdictFor` names the protocol's factors on those investigations, and that the coverage check uses the app's own `analyzeRun` interval.",
   ].join("\n");
 }
 
@@ -594,7 +751,7 @@ export function renderReport(result: BenchResult): string {
     "",
     "**What it does not measure.** It is a simulation: no model is called and nothing touches the network. It validates the *measuring* half of \"the AI reasons, the system measures\" (Diablo's statistical protocol, given one clean experiment per candidate factor), not the reasoning half (whether an LLM proposes the right factors and experiments).",
     "",
-    headlineSection(h),
+    headlineSection(result, h),
     "",
     reproduceSection(result),
     "",
@@ -611,6 +768,8 @@ export function renderReport(result: BenchResult): string {
     sampleSizeSection(result),
     "",
     coverageSection(result),
+    "",
+    verdictSection(result),
     "",
     sensitivitySection(result),
     "",

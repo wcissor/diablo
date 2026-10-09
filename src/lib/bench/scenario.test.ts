@@ -3,6 +3,7 @@ import { hashString } from "@/lib/data/derive";
 import {
   cellKey,
   FACTOR_NAMES,
+  freshItemsFor,
   GRID,
   makeScenario,
   NUISANCE,
@@ -137,6 +138,25 @@ describe("scenario generator", () => {
     expect(low).toBeLessThan(0.3);
     expect(high).toBeGreaterThan(0.55);
     expect(high).toBeLessThan(0.72);
+  });
+
+  it("runs the same scenario as an unpaired design: same v1 accuracy and cause, independent arms", () => {
+    const c: Cell = { K: 3, effectPP: 10, n: 160 };
+    for (const rep of range(50)) {
+      const paired = scenarioFor(c, rep).scenario;
+      const fresh = freshItemsFor(c, rep).scenario;
+      expect(fresh.seed).toBe(paired.seed);
+      expect(fresh.base).toBe(paired.base);
+      expect(fresh.cause).toBe(paired.cause);
+      expect(fresh.rho).toBe(0);
+    }
+    const phi = meanPhi(range(600).map((rep) => freshItemsFor({ K: 1, effectPP: 0, n: 160 }, rep)));
+    expect(Math.abs(phi)).toBeLessThan(0.02);
+    const diffs = range(1500).map((rep) => {
+      const d = freshItemsFor({ K: 2, effectPP: 10, n: 80 }, rep);
+      return diff(d.experiments[d.scenario.cause!]);
+    });
+    expect(Math.abs(mean(diffs) + 0.1)).toBeLessThan(0.006);
   });
 
   it("rejects cells it cannot simulate", () => {

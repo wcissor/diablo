@@ -3,12 +3,11 @@
  * each method's attribution compares with the planted truth. Deterministic:
  * the same config gives the same numbers on every run.
  */
-import { analyzeRun } from "@/lib/data/derive";
-import { THRESHOLDS } from "@/lib/validity";
-import { experimentRunId, toRun } from "./bridge";
+import { analyzeExperiment } from "@/lib/data/derive";
+import { appVerdictBlames, intervalOnlyBlames, toInvestigation } from "./bridge";
 import { EXAMPLE_SPECS, findExample, type Example } from "./examples";
-import { METHOD_IDS, METHODS, overall, score, type MethodId, type Outcome } from "./methods";
-import { GRID, scenarioFor, trueDeltas, type Cell } from "./scenario";
+import { METHOD_IDS, METHODS, overall, score, unpaired, type MethodId, type Outcome } from "./methods";
+import { freshItemsFor, GRID, scenarioFor, trueDeltas, type Cell } from "./scenario";
 
 export interface BenchConfig {
   /** Replicates per grid cell for the attribution metrics. */
@@ -38,19 +37,35 @@ export interface Coverage {
   cause: { intervals: number; covered: number; widthSum: number };
   /** Experiments whose factor changed nothing (true Δ = 0). */
   inert: { intervals: number; covered: number; widthSum: number };
-  /**
-   * Experiments where the app's CI-based call (effect found: the CI excludes 0)
-   * agrees with the raw exact McNemar test at the rubric's alpha.
-   */
-  callsAgree: number;
+}
+
+/**
+ * The app's own verdicts on the coverage replicates (where every experiment's
+ * bootstrap CI is computed anyway): the investigation the app would hold is
+ * built from the counts and each hypothesis gets `verdictFor`'s verdict.
+ */
+export interface VerdictCheck {
+  /** The protocol (the "Diablo protocol" row), on the same scenarios. */
+  protocol: Tally;
+  /** The factors whose hypothesis the app marks "supported". */
+  app: Tally;
+  /** The app's verdict rule before 9 Oct 2026: the CI alone, Holm only a warning. */
+  intervalOnly: Tally;
+  /** Baseline C on the same scenarios, for comparison. */
+  uncorrected: Tally;
+  /** Scenarios where the app's verdicts blamed exactly the factors the protocol blamed. */
+  appMatchesProtocol: number;
 }
 
 export interface CellResult {
   cell: Cell;
   methods: Record<MethodId, Tally>;
+  /** B′: the same scenarios run as an unpaired design (fresh items per arm); null in sensitivity runs. */
+  unpairedDesign: Tally | null;
   /** Baseline A: the overall v1 → v2 drop was significant. */
   overallDetected: number;
   coverage: Coverage;
+  verdicts: VerdictCheck;
 }
 
 /** Sensitivity run: one cell, the latent item correlation fixed at each level. */
@@ -78,7 +93,14 @@ export const emptyTally = (): Tally => ({
 const emptyCoverage = (): Coverage => ({
   cause: { intervals: 0, covered: 0, widthSum: 0 },
   inert: { intervals: 0, covered: 0, widthSum: 0 },
-  callsAgree: 0,
+});
+
+const emptyVerdicts = (): VerdictCheck => ({
+  protocol: emptyTally(),
+  app: emptyTally(),
+  intervalOnly: emptyTally(),
+  uncorrected: emptyTally(),
+  appMatchesProtocol: 0,
 });
 
 const OUTCOME_FIELD: Record<Outcome, keyof Tally> = {
@@ -95,49 +117,71 @@ export function cells(): Cell[] {
   return out;
 }
 
-/** Benchmark one cell: every method on `reps` replicates, CI coverage on the first `coverageReps`. */
-export function runCell(cell: Cell, { reps, coverageReps }: BenchConfig): CellResult {
+/** Count one scenario's attribution in a tally. */
+function record(t: Tally, blamed: number[], cause: number | null, dropSeen: boolean): void {
+  const outcome = score(blamed, cause);
+  t.scenarios++;
+  t[OUTCOME_FIELD[outcome]]++;
+  if (dropSeen) {
+    t.dropSeen++;
+    if (outcome === "false-alarm") t.falseAlarmAfterDrop++;
+  }
+}
+
+const sameFactors = (a: number[], b: number[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+/**
+ * Benchmark one cell: every method on `reps` replicates (B′ on the same
+ * scenarios run with fresh items, unless `freshItems` is false), and on the
+ * first `coverageReps` the CI coverage and the app's own verdicts.
+ */
+export function runCell(cell: Cell, { reps, coverageReps }: BenchConfig, { freshItems = true } = {}): CellResult {
   const methods = Object.fromEntries(METHOD_IDS.map((m) => [m, emptyTally()])) as Record<MethodId, Tally>;
+  const unpairedDesign = freshItems ? emptyTally() : null;
   const coverage = emptyCoverage();
+  const verdicts = emptyVerdicts();
   let overallDetected = 0;
   for (let rep = 0; rep < reps; rep++) {
     const data = scenarioFor(cell, rep);
     const cause = data.scenario.cause;
     const dropSeen = cause === null && data.overall.kTreatment < data.overall.kControl;
-    for (const m of METHOD_IDS) {
-      const blamed = METHODS[m](data).blamed;
-      const t = methods[m];
-      const outcome = score(blamed, cause);
-      t.scenarios++;
-      t[OUTCOME_FIELD[outcome]]++;
-      if (dropSeen) {
-        t.dropSeen++;
-        if (outcome === "false-alarm") t.falseAlarmAfterDrop++;
-      }
-    }
+    const blamed = Object.fromEntries(METHOD_IDS.map((m) => [m, METHODS[m](data).blamed])) as Record<MethodId, number[]>;
+    for (const m of METHOD_IDS) record(methods[m], blamed[m], cause, dropSeen);
     if (overall(data).detected) overallDetected++;
+    if (unpairedDesign) {
+      const fresh = freshItemsFor(cell, rep);
+      record(unpairedDesign, unpaired(fresh).blamed, fresh.scenario.cause, cause === null && fresh.overall.kTreatment < fresh.overall.kControl);
+    }
     if (rep < coverageReps) {
+      // The investigation the app would hold: its runs are seeded by their ids, as in the app.
+      const inv = toInvestigation(data, rep);
       const truth = trueDeltas(data.scenario);
-      data.experiments.forEach((e, j) => {
+      inv.experiments.forEach((exp, j) => {
         // Diablo's own analysis of a paired run: the seeded paired bootstrap (2,000 resamples).
-        const r = analyzeRun(toRun(experimentRunId(data, rep, j), e), "paired")!;
-        const [lo, hi] = r.diffCI;
-        if (r.p < THRESHOLDS.alpha === r.effectFound) coverage.callsAgree++;
+        const [lo, hi] = analyzeExperiment(exp)!.diffCI;
         const bucket = j === cause ? coverage.cause : coverage.inert;
         bucket.intervals++;
         if (lo <= truth[j] && truth[j] <= hi) bucket.covered++;
         bucket.widthSum += hi - lo;
       });
+      const app = appVerdictBlames(inv);
+      record(verdicts.protocol, blamed.diablo, cause, dropSeen);
+      record(verdicts.app, app, cause, dropSeen);
+      record(verdicts.intervalOnly, intervalOnlyBlames(inv), cause, dropSeen);
+      record(verdicts.uncorrected, blamed.uncorrected, cause, dropSeen);
+      if (sameFactors(app, blamed.diablo)) verdicts.appMatchesProtocol++;
     }
   }
-  return { cell, methods, overallDetected, coverage };
+  return { cell, methods, unpairedDesign, overallDetected, coverage, verdicts };
 }
 
 export function runBenchmark(config: BenchConfig = BENCH_CONFIG): BenchResult {
   return {
     config,
     cells: cells().map((cell) => runCell(cell, config)),
-    sensitivity: SENSITIVITY.rho.map((rho) => runCell({ ...SENSITIVITY.cell, rho }, { ...config, coverageReps: 0 })),
+    sensitivity: SENSITIVITY.rho.map((rho) =>
+      runCell({ ...SENSITIVITY.cell, rho }, { ...config, coverageReps: 0 }, { freshItems: false }),
+    ),
     examples: EXAMPLE_SPECS.map((spec) => findExample(spec, config.reps)),
   };
 }
@@ -146,14 +190,37 @@ export function runBenchmark(config: BenchConfig = BENCH_CONFIG): BenchResult {
 
 export type CellFilter = (c: Cell) => boolean;
 
-export function pool(result: BenchResult, method: MethodId, keep: CellFilter): Tally {
+/** Sum a tally over the grid cells that pass `keep`; `get` picks the tally from a cell (null: skip). */
+export function poolTally(result: BenchResult, get: (r: CellResult) => Tally | null, keep: CellFilter): Tally {
   const out = emptyTally();
   for (const r of result.cells) {
     if (!keep(r.cell)) continue;
-    const t = r.methods[method];
+    const t = get(r);
+    if (!t) continue;
     for (const k of Object.keys(out) as (keyof Tally)[]) out[k] += t[k];
   }
   return out;
+}
+
+export function pool(result: BenchResult, method: MethodId, keep: CellFilter): Tally {
+  return poolTally(result, (r) => r.methods[method], keep);
+}
+
+/** B′, the unpaired design. */
+export function poolUnpairedDesign(result: BenchResult, keep: CellFilter): Tally {
+  return poolTally(result, (r) => r.unpairedDesign, keep);
+}
+
+/** The verdict check on the coverage replicates. */
+export function poolVerdicts(result: BenchResult, keep: CellFilter): VerdictCheck {
+  const tally = (k: Exclude<keyof VerdictCheck, "appMatchesProtocol">) => poolTally(result, (r) => r.verdicts[k], keep);
+  return {
+    protocol: tally("protocol"),
+    app: tally("app"),
+    intervalOnly: tally("intervalOnly"),
+    uncorrected: tally("uncorrected"),
+    appMatchesProtocol: result.cells.filter((r) => keep(r.cell)).reduce((n, r) => n + r.verdicts.appMatchesProtocol, 0),
+  };
 }
 
 export function poolDetected(result: BenchResult, keep: CellFilter): { detected: number; scenarios: number } {
@@ -176,7 +243,6 @@ export function poolCoverage(result: BenchResult, keep: CellFilter): Coverage {
       out[k].covered += r.coverage[k].covered;
       out[k].widthSum += r.coverage[k].widthSum;
     }
-    out.callsAgree += r.coverage.callsAgree;
   }
   return out;
 }

@@ -60,7 +60,7 @@ export interface ExampleSpec {
 export const EXAMPLE_SPECS: ExampleSpec[] = [
   {
     id: "wrong-revert",
-    title: "Eyeballing and uncorrected tests blame a factor that changed nothing",
+    title: "Blaming the largest drop and uncorrected tests both pick a factor that changed nothing",
     lesson:
       "One factor really cost 10 pp, but by chance an innocent factor shows the largest drop, and its uncorrected p-value is below 0.05. A team following either baseline reverts the wrong change and keeps the real cause. Diablo does not have the evidence to name anything, and says so: no attributable cause, collect more items.",
     cells: [{ K: 4, effectPP: 10, n: 80 }],

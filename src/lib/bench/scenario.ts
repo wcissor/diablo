@@ -187,3 +187,13 @@ export function simulate(cell: Cell, seed: number): SimulatedData {
 export function scenarioFor(cell: Cell, rep: number): SimulatedData {
   return simulate(cell, seedFor(cell, rep));
 }
+
+/**
+ * The same scenario (same seed, so the same v1 accuracy and true cause) run as
+ * an unpaired design: every arm on fresh items, so outcomes are independent
+ * across runs. With fresh items an outcome is a plain Bernoulli draw at the
+ * arm's accuracy, which is the item model with rho = 0.
+ */
+export function freshItemsFor(cell: Cell, rep: number): SimulatedData {
+  return simulate({ ...cell, rho: 0 }, seedFor(cell, rep));
+}

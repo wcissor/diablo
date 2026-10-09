@@ -1,8 +1,10 @@
 /**
  * Turns simulated counts into the app's own data model, so the benchmark can
  * run Diablo's real analysis code (derive.ts) on them: `analyzeRun` for the
- * paired bootstrap CI, `holmAdjusted` for the correction across experiments.
+ * paired bootstrap CI, `holmAdjusted` for the correction across experiments,
+ * and `verdictFor` for the verdict the app shows on each hypothesis.
  */
+import { analyzeExperiment, verdictFor } from "@/lib/data/derive";
 import type { Experiment, Hypothesis, Investigation, Run } from "@/lib/data/types";
 import { cellKey, type PairedCounts, type SimulatedData } from "./scenario";
 
@@ -99,4 +101,26 @@ export function toInvestigation(data: SimulatedData, rep: number): Investigation
     templateDraft: false,
     failed: false,
   };
+}
+
+/**
+ * The factors the app itself blames for this investigation: those whose
+ * hypothesis ("changing it lowered accuracy") gets the verdict "supported" from
+ * `verdictFor`. Factor j is hypothesis H{j+1}.
+ */
+export function appVerdictBlames(inv: Investigation): number[] {
+  return inv.hypotheses.flatMap((h, j) => (verdictFor(inv, h).verdict === "supported" ? [j] : []));
+}
+
+/**
+ * The rule the app's verdicts used before 9 Oct 2026, kept to report what the
+ * benchmark caught: "supported" whenever the paired-bootstrap CI excluded zero
+ * in the predicted direction, with a failed Holm check (C7) shown only as a
+ * warning that lowered the evidence strength.
+ */
+export function intervalOnlyBlames(inv: Investigation): number[] {
+  return inv.experiments.flatMap((e, j) => {
+    const r = analyzeExperiment(e);
+    return r && r.effectFound && r.diff < 0 ? [j] : [];
+  });
 }

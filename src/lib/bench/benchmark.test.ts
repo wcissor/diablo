@@ -8,9 +8,21 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
 import { formatPct } from "@/lib/stats";
-import { and, BENCH_CONFIG, noCause, pool, poolCoverage, poolDetected, runBenchmark, runCell, withCause } from "./benchmark";
-import type { BenchResult, CellFilter } from "./benchmark";
-import { headline, namedRight, renderReport, type Headline } from "./report";
+import {
+  and,
+  BENCH_CONFIG,
+  noCause,
+  pool,
+  poolCoverage,
+  poolDetected,
+  poolUnpairedDesign,
+  poolVerdicts,
+  runBenchmark,
+  runCell,
+  withCause,
+} from "./benchmark";
+import type { BenchResult, CellFilter, Tally } from "./benchmark";
+import { headline, namedRight, ratioRange, renderReport, type Headline } from "./report";
 import { GRID, type Cell } from "./scenario";
 
 let result: BenchResult;
@@ -80,13 +92,31 @@ describe("headline numbers quoted in SUBMISSION.md and SCORECARD.md", () => {
     expect(pct(nr.right, nr.named)).toBe("93.5%");
   });
 
-  it("B. Unpaired tests with Holm", () => {
+  it("B. Paired data analysed with unpaired tests and Holm", () => {
     const B = h.method.unpaired;
     expect(pct(B.cause.correct, B.cause.scenarios)).toBe("31.7%");
     expect(pct(B.cause.wrong, B.cause.scenarios)).toBe("0.3%");
     expect(pct(B.none.falseAlarm, B.none.scenarios)).toBe("0.4%");
     const nr = namedRight(B.all);
     expect(pct(nr.right, nr.named)).toBe("98.6%");
+  });
+
+  it("B′. A proper unpaired design (fresh items per arm) with Holm", () => {
+    const P = h.unpairedDesign;
+    expect(pct(P.cause.correct, P.cause.scenarios)).toBe("33.1%");
+    expect(pct(P.cause.wrong, P.cause.scenarios)).toBe("1.9%");
+    expect(pct(P.none.falseAlarm, P.none.scenarios)).toBe("2.2%");
+    const nr = namedRight(P.all);
+    expect(pct(nr.right, nr.named)).toBe("93.2%");
+    expect(P.all.scenarios).toBe(45000);
+  });
+
+  it("C against Diablo, as ratios with the range the Monte Carlo intervals allow", () => {
+    const d = h.method.diablo;
+    const C = h.method.uncorrected;
+    const show = (r: { point: number; lo: number; hi: number }) => [r.point, r.lo, r.hi].map((x) => x.toFixed(1)).join(" ");
+    expect(show(ratioRange({ k: C.cause.wrong, n: C.cause.scenarios }, { k: d.cause.wrong, n: d.cause.scenarios }))).toBe("2.8 2.3 3.3");
+    expect(show(ratioRange({ k: C.none.falseAlarm, n: C.none.scenarios }, { k: d.none.falseAlarm, n: d.none.scenarios }))).toBe("3.8 2.8 5.1");
   });
 
   it("A. Overall before/after detects the drop but never attributes", () => {
@@ -112,6 +142,28 @@ describe("headline numbers quoted in SUBMISSION.md and SCORECARD.md", () => {
     expect(c.inert.intervals).toBe(4950);
     expect(pct(c.cause.covered, c.cause.intervals)).toBe("95.5%");
     expect(pct(c.inert.covered, c.inert.intervals)).toBe("96.1%");
+  });
+});
+
+describe("the app's own verdicts (verdictFor), on the coverage replicates", () => {
+  const rates = (keep: CellFilter, k: "protocol" | "app" | "intervalOnly" | "uncorrected") => poolVerdicts(result, keep)[k];
+  const show = (cause: Tally, none: Tally, all: Tally) => {
+    const nr = namedRight(all);
+    return [pct(cause.correct, cause.scenarios), pct(cause.wrong, cause.scenarios), pct(none.falseAlarm, none.scenarios), pct(nr.right, nr.named)];
+  };
+  const row = (k: "protocol" | "app" | "intervalOnly" | "uncorrected") => show(rates(withCause, k), rates(noCause, k), rates(() => true, k));
+
+  it("name exactly the protocol's factors in every scenario checked", () => {
+    const v = poolVerdicts(result, () => true);
+    expect(v.app.scenarios).toBe(2250);
+    expect(v.appMatchesProtocol).toBe(2250);
+    expect(v.app).toEqual(v.protocol);
+    expect(row("app")).toEqual(["40.4%", "0.8%", "0.9%", "97.6%"]);
+  });
+
+  it("before 9 Oct 2026 (interval alone) they raised more false alarms than uncorrected tests", () => {
+    expect(row("intervalOnly")).toEqual(["53.4%", "3.5%", "8.2%", "90.6%"]);
+    expect(row("uncorrected")).toEqual(["48.9%", "1.8%", "4.7%", "94.2%"]);
   });
 });
 
@@ -146,6 +198,22 @@ describe("claims the report's prose makes", () => {
     for (const r of rows((c) => c.n >= 80 && c.effectPP >= 10)) {
       expect(r.methods.diablo.correct).toBeGreaterThanOrEqual(r.methods.unpaired.correct);
     }
+  });
+
+  it("B′ finds more than Diablo only in the three rows with the least evidence, and less overall", () => {
+    const rows = result.cells
+      .filter((r) => r.cell.effectPP > 0)
+      .map((r) => r.cell)
+      .filter((c, i, all) => all.findIndex((x) => x.effectPP === c.effectPP && x.n === c.n) === i)
+      .filter((c) => {
+        const keep = byCell({ effectPP: c.effectPP, n: c.n });
+        const P = poolUnpairedDesign(result, keep);
+        const d = pool(result, "diablo", keep);
+        return P.correct / P.scenarios > d.correct / d.scenarios;
+      })
+      .map((c) => `${c.effectPP}/${c.n}`);
+    expect(rows).toEqual(["5/40", "5/80", "10/40"]);
+    expect(h.unpairedDesign.cause.correct).toBeLessThan(h.method.diablo.cause.correct);
   });
 
   it("the overall test flags no-cause scenarios at about its nominal rate", () => {
