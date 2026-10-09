@@ -66,17 +66,21 @@ export function investigationInterpretation(inv: Investigation): string {
     const list = parts.join(", ");
     return `Not enough evidence yet.${list ? ` ${list.charAt(0).toUpperCase()}${list.slice(1)}.` : ""}`;
   }
+  const adjusted = holmAdjusted(inv);
   const sentences = inv.hypotheses.map((h) => {
-    const { verdict, experiments } = verdictFor(inv, h);
+    const { verdict, experiments, failsHolm } = verdictFor(inv, h);
     const finished = experiments.filter((e) => analyzeExperiment(e));
     if (verdict === "untested") {
       const pending = experiments.find((e) => e.status === "running" || e.status === "proposed");
       return `${h.id} is untested${pending ? ` (${pending.id} ${pending.status})` : ""}.`;
     }
-    const e = finished[0];
+    const e = verdict === "rejected" && failsHolm.length ? failsHolm[0] : finished[0];
     const r = analyzeExperiment(e)!;
     const nums = `${e.id}: Δ ${formatPP(r.diff)}, 95% CI ${formatCIpp(r.diffCI)} pp`;
     if (verdict === "supported") return `${h.id} is supported (${nums}${finished.length > 1 ? `, and ${finished.length - 1} more` : ""}).`;
+    if (verdict === "rejected" && failsHolm.length) {
+      return `${h.id} is not supported: the interval excludes zero (${nums}), but the effect does not survive the Holm correction across ${adjusted.size} primary tests (adjusted ${formatP(adjusted.get(e.id)!)}).`;
+    }
     if (verdict === "rejected") return `${h.id} is not supported (${nums}).`;
     return `${h.id} is partly supported: results differ across ${finished.map((x) => x.id).join(", ")}.`;
   });

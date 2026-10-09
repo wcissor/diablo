@@ -92,6 +92,7 @@ export function OverviewTab() {
                         Δ {formatPP(first.r.diff)} [{formatCIpp(first.r.diffCI)}]
                       </Mono>
                     )}
+                    {v.failsHolm.length > 0 && <span>Does not survive the Holm correction (C7)</span>}
                   </div>
                 </div>
                 <VerdictTag verdict={v.verdict} />

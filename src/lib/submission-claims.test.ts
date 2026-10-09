@@ -91,6 +91,8 @@ describe("what the rubric catches", () => {
     const checks = experimentChecks(inv, inv.experiments[1], familyOf)!;
     expect(analyzeExperiment(inv.experiments[1])!.effectFound).toBe(true);
     expect(checks.find((c) => c.id === "C7")!.state).toBe("warn");
+    // ... and its hypothesis is not marked supported.
+    expect(verdictFor(inv, inv.hypotheses[1]).verdict).toBe("rejected");
   });
 
   it("a replication that goes the other way fails C8 and downgrades the evidence", () => {

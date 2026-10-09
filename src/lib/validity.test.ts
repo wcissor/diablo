@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { analyzeExperiment, investigationStatus, verdictFor } from "./data/derive";
+import { analyzeExperiment, holmAdjusted, investigationStatus, verdictFor } from "./data/derive";
+import { investigationInterpretation } from "./data/interpret";
 import { seedInvestigations } from "./data/mock/fixtures";
 import { SYSTEMS } from "./data/mock/catalog";
 import { simulateRun } from "./data/mock/simulate";
@@ -47,6 +48,36 @@ describe("verdicts and status are derived", () => {
     const inv = byId("long-context-degradation");
     expect(verdictFor(inv, inv.hypotheses[0]).verdict).toBe("rejected");
     expect(verdictFor(inv, inv.hypotheses[1]).verdict).toBe("supported");
+  });
+  it("a verdict needs the effect to survive the Holm correction (C7), not just an interval that excludes zero", () => {
+    // Long-context has two primary tests. Make H2's effect borderline: 312/320 vs 301/320 is p ≈ 0.03 on its own.
+    const inv = structuredClone(byId("long-context-degradation")) as Investigation;
+    const run = inv.experiments[1].runs[0];
+    inv.experiments[1].runs[0] = { ...run, counts: { control: { k: 312, n: 320 }, treatment: { k: 301, n: 320 } } };
+    const r = analyzeExperiment(inv.experiments[1])!;
+    expect(r.effectFound).toBe(true);
+    expect(r.diff).toBeLessThan(0);
+    expect(holmAdjusted(inv).get("E2")!).toBeGreaterThanOrEqual(0.05);
+    const v = verdictFor(inv, inv.hypotheses[1]);
+    expect(v.verdict).toBe("rejected");
+    expect(v.failsHolm.map((e) => e.id)).toEqual(["E2"]);
+    expect(experimentChecks(inv, inv.experiments[1], familyOf)!.find((c) => c.id === "C7")!.state).toBe("warn");
+    expect(investigationInterpretation(inv)).toContain("H2 is not supported: the interval excludes zero");
+    expect(investigationInterpretation(inv)).toContain("does not survive the Holm correction across 2 primary tests");
+
+    // The same result predicted as "no difference" is not supported either: its interval excludes zero.
+    inv.hypotheses[1] = { ...inv.hypotheses[1], prediction: "no-difference" };
+    expect(verdictFor(inv, inv.hypotheses[1]).verdict).toBe("rejected");
+
+    // As the only primary test there is nothing to correct for, and the interval decides.
+    inv.hypotheses[1] = { ...inv.hypotheses[1], prediction: "decrease" };
+    inv.experiments[0].design.primary = false;
+    expect(holmAdjusted(inv).size).toBe(1);
+    expect(verdictFor(inv, inv.hypotheses[1])).toMatchObject({ verdict: "supported", failsHolm: [] });
+  });
+  it("seeded verdicts are unchanged by the Holm requirement: every supported effect survives it", () => {
+    for (const inv of seeds)
+      for (const h of inv.hypotheses) expect(verdictFor(inv, h).failsHolm).toEqual([]);
   });
   it("statuses", () => {
     expect(investigationStatus(byId("sycophancy-model-x"))).toBe("running");

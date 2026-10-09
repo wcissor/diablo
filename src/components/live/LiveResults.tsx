@@ -64,7 +64,7 @@ export function LiveResults({ result }: { result: LiveResult }) {
             );
           })}
         </ul>
-        <p className="mt-2 text-[13px] text-ink-3">Verdicts are computed from the intervals, never assigned by the model.</p>
+        <p className="mt-2 text-[13px] text-ink-3">Verdicts are computed from the intervals and the Holm correction, never assigned by the model.</p>
       </section>
 
       <section aria-labelledby="live-exp-h" className="space-y-4">

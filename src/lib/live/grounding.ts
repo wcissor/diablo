@@ -9,6 +9,7 @@
  * table. Only then does code substitute the values.
  */
 import type { Analysis } from "./analyze";
+import { survivesHolm } from "@/lib/data/derive";
 import { VERDICT_LABEL, investigationInterpretation, strengthLine } from "@/lib/data/interpret";
 import type { Investigation } from "@/lib/data/types";
 import { count } from "@/lib/format";
@@ -35,7 +36,14 @@ export function buildFacts(inv: Investigation, analysis: Analysis): Fact[] {
     add(`${e.id} exact McNemar test`, formatP(r.p));
     const adj = analysis.holm.get(e.id);
     if (adj !== undefined && analysis.holm.size > 1) add(`${e.id} Holm-adjusted across ${analysis.holm.size} tests`, formatP(adj));
-    add(`${e.id} outcome`, r.effectFound ? "effect found (the interval excludes zero)" : "no clear effect (the interval includes zero)");
+    add(
+      `${e.id} outcome`,
+      !r.effectFound
+        ? "no clear effect (the interval includes zero)"
+        : survivesHolm(analysis.holm, e)
+          ? "effect found (the interval excludes zero)"
+          : "the interval excludes zero, but the effect does not survive the Holm correction, so it supports no hypothesis",
+    );
   }
   for (const h of inv.hypotheses) add(`${h.id} verdict`, VERDICT_LABEL[analysis.verdicts.get(h.id) ?? "untested"].toLowerCase());
   add("Evidence strength", strengthLine(analysis.assessment));

@@ -7,11 +7,13 @@
  */
 import { formatCIpp, formatP, formatPP } from "@/lib/stats";
 import {
+  ALPHA,
   analyzeExperiment,
   analyzeRun,
   finishedExperiments,
   holmAdjusted,
   replicationRuns,
+  survivesHolm,
   verdictFor,
 } from "@/lib/data/derive";
 import type { Experiment, Investigation } from "@/lib/data/types";
@@ -23,8 +25,8 @@ export const THRESHOLDS = {
   minPerArm: 30,
   /** Draft threshold for judge–human agreement. */
   humanAgreement: 0.8,
-  /** Significance level used after the Holm correction. */
-  alpha: 0.05,
+  /** Significance level used after the Holm correction (a hypothesis verdict needs it too: derive.ts). */
+  alpha: ALPHA,
 } as const;
 
 export type CheckId = "C1" | "C2" | "C3" | "C4" | "C5" | "C6" | "C7" | "C8" | "C9";
@@ -150,8 +152,8 @@ export function experimentChecks(inv: Investigation, exp: Experiment, familyOf: 
   else {
     const a = adj.get(exp.id)!;
     out.push(
-      r.effectFound && a >= THRESHOLDS.alpha
-        ? check("C7", "warn", `Does not survive Holm correction: adjusted ${formatP(a)} across ${adj.size} tests`)
+      r.effectFound && !survivesHolm(adj, exp)
+        ? check("C7", "warn", `Does not survive Holm correction: adjusted ${formatP(a)} across ${adj.size} tests, so it supports no hypothesis`)
         : check("C7", "pass", `Holm-adjusted ${formatP(a)} across ${adj.size} primary tests`),
     );
   }

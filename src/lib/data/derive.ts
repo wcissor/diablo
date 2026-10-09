@@ -156,23 +156,55 @@ export function holmAdjusted(inv: Investigation): Map<string, number> {
   return new Map(rows.map((r, i) => [r.id, adj[i]]));
 }
 
+/** Significance level after the Holm correction (the validity rubric's check C7). */
+export const ALPHA = 0.05;
+
+/**
+ * Does this experiment survive the Holm correction across the investigation's
+ * primary tests (check C7)? A secondary analysis or a single primary test is
+ * outside the correction, so it always does. `adjusted` is `holmAdjusted(inv)`.
+ */
+export function survivesHolm(adjusted: Map<string, number>, e: Experiment): boolean {
+  const a = adjusted.get(e.id);
+  return a === undefined || adjusted.size <= 1 || a < ALPHA;
+}
+
 export type Verdict = "supported" | "partly-supported" | "rejected" | "untested";
 
-/** Does one result agree with what the hypothesis predicted? */
-function agrees(h: Hypothesis, r: RunResult): boolean {
+/**
+ * Does one result agree with what the hypothesis predicted? A predicted
+ * increase or decrease needs an effect: the 95% CI excludes zero in the
+ * predicted direction and, among several primary tests, the result survives
+ * the Holm correction. An effect that does not survive it supports neither a
+ * direction nor "no difference".
+ */
+function agrees(h: Hypothesis, r: RunResult, corrected: boolean): boolean {
   if (h.prediction === "no-difference") return !r.effectFound;
-  if (!r.effectFound) return false;
+  if (!r.effectFound || !corrected) return false;
   return h.prediction === "increase" ? r.diff > 0 : r.diff < 0;
 }
 
+export interface VerdictResult {
+  verdict: Verdict;
+  experiments: Experiment[];
+  /** Linked experiments whose CI excludes zero but which do not survive the Holm correction (C7 warns). */
+  failsHolm: Experiment[];
+}
+
 /** Verdict from the hypothesis's finished experiments, never assigned by hand. */
-export function verdictFor(inv: Investigation, h: Hypothesis): { verdict: Verdict; experiments: Experiment[] } {
+export function verdictFor(inv: Investigation, h: Hypothesis): VerdictResult {
   const linked = inv.experiments.filter((e) => e.hypothesisId === h.id);
-  const results = linked.map((e) => analyzeExperiment(e)).filter((r): r is RunResult => r !== null);
-  if (!results.length) return { verdict: "untested", experiments: linked };
-  const ok = results.filter((r) => agrees(h, r)).length;
+  const results = linked.flatMap((e) => {
+    const r = analyzeExperiment(e);
+    return r ? [{ e, r }] : [];
+  });
+  if (!results.length) return { verdict: "untested", experiments: linked, failsHolm: [] };
+  const adjusted = holmAdjusted(inv);
+  const checked = results.map(({ e, r }) => ({ e, r, corrected: survivesHolm(adjusted, e) }));
+  const ok = checked.filter(({ r, corrected }) => agrees(h, r, corrected)).length;
   const verdict: Verdict = ok === results.length ? "supported" : ok === 0 ? "rejected" : "partly-supported";
-  return { verdict, experiments: linked };
+  const failsHolm = checked.filter(({ r, corrected }) => r.effectFound && !corrected).map(({ e }) => e);
+  return { verdict, experiments: linked, failsHolm };
 }
 
 /** Status is derived from the experiments, so it can never go stale. */
