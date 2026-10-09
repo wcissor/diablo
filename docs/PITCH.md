@@ -38,7 +38,7 @@ What is real today: the full workflow and the statistics. What is next: plugging
 
 ## 2:35 Why now and ask (25 s)
 
-Every company is now changing its AI every week, and nobody is measuring why it changes. We estimate one investigation costs about 34 cents of model time.
+Every company is now changing its AI every week, and nobody is measuring why it changes. We estimate one investigation costs about one dollar of model time.
 
 We are looking for design partners: one team that ships AI and has a regression it cannot explain. Give us the question; we will give you the answer, with the evidence.
 
@@ -49,7 +49,7 @@ Diablo. Understand your AI.
 ## The 8 hardest jury questions
 
 **1. "Is the AI real, or is this a mock-up?"**
-The statistics, the validity rubric and the whole workflow are real code, tested and live. The reasoning agent in this demo is a rule-based stand-in covering 7 topics, and the app says "Demo data" on screen. A Python engine with a real model provider is in progress on a branch. We built the measurement half first on purpose: it is the part an LLM must never be trusted to do.
+The statistics, the validity rubric and the whole workflow are real code, tested and live. The reasoning agent in this demo is a rule-based stand-in covering 7 topics, and the app says "Demo data" on screen. The Live investigation page runs one investigation end to end with a real model, Claude Opus 5.5, as soon as a key is set; we have not yet run it against the real API. We built the measurement half first on purpose: it is the part an LLM must never be trusted to do.
 
 **2. "Why not just use an eval platform or an observability tool?"**
 Use them; Diablo sits on top. They tell you a metric moved and show you traces. Diablo answers which change caused it: one controlled experiment per hypothesis, a paired test on the same prompts, a confidence interval, and a grade for how much to trust the result.
@@ -61,7 +61,7 @@ Because it never touches the numbers. The model proposes; the system runs, count
 API access to your AI system, the config of each version, about 30 or more prompts per arm (from logs or an existing eval set), and a scorer: a rule, or a judge we check against human labels. No training data and no fine-tuning.
 
 **5. "What does it cost to run?"**
-An estimate, not a measured figure: about $0.34 of reasoning per investigation on GLM-5.3, or $0.04 on the flash model, plus about $0.06 to judge 320 outputs. Your own model calls come on top. The arithmetic is in `docs/SUBMISSION.md`.
+An estimate, not a measured figure: about $1.01 of reasoning per investigation on Claude Opus 5.5, plus about $0.05 to judge 320 outputs on Claude Haiku 5.5; a live run's system under test on Claude Haiku 5.5 adds about $0.02. Your own model calls come on top. The arithmetic is in `docs/SUBMISSION.md`.
 
 **6. "Who are your customers?"**
 None yet; we are pre-launch. The target is every company that integrates AI, from telecoms such as Azercell to labs such as Anthropic and OpenAI. These are segments, not customers. The next step is design partners.
