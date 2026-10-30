@@ -12,10 +12,10 @@ import type { HandProps, HeadProps, TailRing } from '../cast/types';
 import type { Pt } from '../lib/anim';
 
 // Dev sheet for Diablo, his hands and tail. Sections by frame:
-//   0 settled head + hovering hands on the stage   50 eyes only
-// 100 strike pose with clawTips markers           150 narrowed eyes, look, crescent with 4 seams
+//   0 settled head + hovering hands on the stage   50 eyes only, ghost rim, scale 1.4
+// 100 strike pose with clawTips markers           150 narrowed eyes, crescent in front of the head (keyline 1 left, 0 right)
 // 200 ring half swept                              250 ring closed with gold edge
-// 300 silhouettes on cream                         350 the mark   360 the mark mid-blink
+// 300 silhouettes on cream    350 the mark with its seam   360 the mark mid-blink   370 seam half drawn
 // 400 claw-tip check at several poses (large)   410 pointing: one claw leads, three tucked (leadTip markers)
 // 450 rising head, flipped scythe, ring at 0.93
 // 500 eye states: open / narrow 0.5 / narrow 1 (pleased) / glare 1 (menacing)
@@ -83,7 +83,8 @@ export const DiabloSheet: React.FC = () => {
   } else if (frame < 100) {
     body = (
       <Stage id="s1">
-        <DiabloHead {...settled} eyesOnly />
+        {/* shot 1: the eyes in the dark, the head's top-edge rim hinted (ghost), enlarged */}
+        <DiabloHead {...settled} eyesOnly ghost={1} scale={1.4} />
       </Stage>
     );
   } else if (frame < 150) {
@@ -105,13 +106,16 @@ export const DiabloSheet: React.FC = () => {
       </Stage>
     );
   } else if (frame < 200) {
+    // The crescent in front of his head: left with keyline 1, right without (for comparison).
     const head: HeadProps = { ...settled, eyes: { open: 1, narrow: 1, look: { x: 8, y: 2 } }, warm: 0.6 };
-    const cres = { x: 860, y: 900, rot: -18, scale: 1 };
+    const cres = { x: 300, y: 790, rot: 8, scale: 0.9 };
+    const cres2 = { x: 760, y: 790, rot: -8, scale: 0.9, flip: true };
     const tt = tailTips(cres);
     body = (
       <Stage id="s3" warm={0.6}>
-        <Tail crescent={cres} seams={4} warm={0.6} />
         <DiabloHead {...head} />
+        <Tail crescent={cres} seams={4} warm={0.5} keyline={1} />
+        <Tail crescent={cres2} seams={4} warm={0.5} />
         {eyeCentres(head).map((e, i) => (
           <Marker key={i} p={e} r={3} />
         ))}
@@ -153,11 +157,13 @@ export const DiabloSheet: React.FC = () => {
       </AbsoluteFill>
     );
   } else if (frame < 400) {
-    const blink = frame >= 360 ? 0.6 : 0;
+    // 350: the mark with its seam drawn; 360: mid-blink (seam drawn too); 370: the seam half drawn.
+    const blink = frame >= 360 && frame < 370 ? 0.6 : 0;
+    const seam = frame >= 370 ? 0.5 : 1;
     body = (
       <Canvas>
         <rect width={1080} height={1920} fill={C.night} />
-        <Mark blink={blink} />
+        <Mark blink={blink} seam={seam} />
         <line x1={0} x2={1080} y1={490} y2={490} stroke="#00E5FF" strokeOpacity={0.25} />
         <line x1={0} x2={1080} y1={910} y2={910} stroke="#00E5FF" strokeOpacity={0.25} />
         <line x1={540} x2={540} y1={400} y2={1000} stroke="#00E5FF" strokeOpacity={0.25} />

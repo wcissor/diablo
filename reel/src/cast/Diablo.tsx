@@ -7,13 +7,15 @@
 // CameraMotionBlur's stacked copies all resolve the same url(#id).
 
 import React from 'react';
-import { CRESCENT_PATH, HEAD_BOX, HEAD_PATH } from '../logo';
+import { CRESCENT_BOX, CRESCENT_PATH, HEAD_BOX, HEAD_PATH } from '../logo';
 import { DIABLO_EYES_Y, DIABLO_ORIGIN, DIABLO_SCALE, MARK_ORIGIN, MARK_SCALE } from '../geometry';
-import { C, HATCH } from '../theme';
+import { C, HATCH, SEAM } from '../theme';
+import { mix } from '../stage/Stage';
 import { clamp, type Pt } from '../lib/anim';
 import type { EyeState, HeadProps, MarkProps } from './types';
-import { ap, centroid, chain, invv, polyD, R, S, scaleOf, signedArea, svgM, T, unrotate, type Mat } from './diablo/geom';
+import { ap, centroid, chain, invv, polyD, R, rimBandD, S, scaleOf, signedArea, svgM, T, unrotate, type Mat } from './diablo/geom';
 import { EYE, HEAD_REGION, type Eye } from './diablo/shape';
+import { TAIL_SEAMS } from './Tail';
 
 const PIVOT: Pt = { x: 540, y: DIABLO_EYES_Y };
 
@@ -208,6 +210,19 @@ export const DiabloHead: React.FC<HeadProps> = (p) => {
     </g>
   );
 
+  // Shot 1: the silhouette hinted out of the dark. Only the cream rim on the
+  // top edges of head and horns, faint, and no fill at all.
+  const ghost = p.eyesOnly && !p.silhouette ? clamp(p.ghost ?? 0) : 0;
+  const ghostRim =
+    ghost > 0 ? (
+      <g transform={svgM(m)} opacity={ghost * 0.35}>
+        <HeadDefs />
+        <g clipPath={`url(#${H}-clip)`}>
+          <path d={rimBandD(HEAD_PATH, rim, RX)} fill={C.cream} fillRule="evenodd" />
+        </g>
+      </g>
+    ) : null;
+
   const eyes = p.silhouette ? null : (
     <g transform={svgM(chain(T(look.x, look.y), m))}>
       <Eyes s={p.eyes} />
@@ -224,6 +239,7 @@ export const DiabloHead: React.FC<HeadProps> = (p) => {
         </defs>
       ) : null}
       {head}
+      {ghostRim}
       {eyes}
     </g>
   );
@@ -237,18 +253,57 @@ const MARK_CY = 700;
 export const markMatrix = (scale = 1): Mat =>
   chain(T(MARK_CX, MARK_CY), S(scale), T(-MARK_CX, -MARK_CY), T(MARK_ORIGIN.x, MARK_ORIGIN.y), S(MARK_SCALE));
 
-// Shot 7: the whole mark, 420 px tall, centred on (540, 700). Maroon with a
-// 3 px cream outline all round, gold eyes; `blink` 1 shuts them.
-export const Mark: React.FC<MarkProps> = ({ blink, opacity = 1, scale = 1 }) => {
+// Shot 7: the whole mark, 420 px tall, centred on (540, 700), lit the way he
+// is in the scenes: maroon, a 3 px cream rim on the top edges only, gold eyes,
+// and a faint full keyline in a dark maroon tint (1.5 px, outside) so the
+// shape still separates from night. `blink` 1 shuts the eyes; `seam` 0..1
+// draws one gold kintsugi seam across the crescent, from its outer edge in.
+const MK = 'dmark';
+const MARK_SEAM = TAIL_SEAMS[0]; // across the middle of the blade, forking once
+const MARK_PARTS = [
+  { d: HEAD_PATH, box: HEAD_REGION },
+  { d: CRESCENT_PATH, box: { x: CRESCENT_BOX.x - 60, y: CRESCENT_BOX.y - 60, w: CRESCENT_BOX.w + 120, h: CRESCENT_BOX.h + 120 } },
+];
+
+// Static defs, trace coordinates of the mark group.
+const MarkDefs: React.FC = () => (
+  <defs>
+    {MARK_PARTS.map((pt, i) => (
+      <clipPath key={i} id={`${MK}-clip${i}`}>
+        <path d={pt.d} />
+      </clipPath>
+    ))}
+  </defs>
+);
+
+export const Mark: React.FC<MarkProps> = ({ blink, opacity = 1, scale = 1, seam = 0 }) => {
   const m = markMatrix(scale);
   const k = scaleOf(m);
-  const ow = 6 / k; // a 6 px stroke under the fill leaves 3 px outside
+  const rim = invv(m, { x: 0, y: 3 }); // 3 canvas px straight down, in trace units
+  const key = mix(C.maroon, C.cream, 0.15);
+  const t = clamp(seam);
+  const shadow = invv(m, { x: 0, y: 2 });
+  const dash = { pathLength: 1, strokeDasharray: `${t} 2`, strokeDashoffset: 0 };
   return (
     <g opacity={opacity} transform={svgM(m)}>
-      <path d={HEAD_PATH} fill={C.cream} stroke={C.cream} strokeWidth={ow} strokeLinejoin="round" />
-      <path d={CRESCENT_PATH} fill={C.cream} stroke={C.cream} strokeWidth={ow} strokeLinejoin="round" />
-      <path d={HEAD_PATH} fill={C.maroon} />
-      <path d={CRESCENT_PATH} fill={C.maroon} />
+      <MarkDefs />
+      {MARK_PARTS.map((pt, i) => (
+        <g key={i}>
+          {/* keyline: a 3 px stroke under the fill leaves 1.5 px outside */}
+          <path d={pt.d} fill={key} stroke={key} strokeWidth={3 / k} strokeLinejoin="round" />
+          <path d={pt.d} fill={C.maroon} />
+          <g clipPath={`url(#${MK}-clip${i})`}>
+            <path d={rimBandD(pt.d, rim, pt.box)} fill={C.cream} fillRule="evenodd" />
+          </g>
+        </g>
+      ))}
+      {t > 0 ? (
+        <g clipPath={`url(#${MK}-clip1)`} fill="none" strokeLinecap="round" strokeLinejoin="round">
+          <path d={MARK_SEAM} stroke={C.night} strokeOpacity={0.45} strokeWidth={SEAM.width / k} transform={`translate(${shadow.x} ${shadow.y})`} {...dash} />
+          <path d={MARK_SEAM} stroke={C.gold} strokeWidth={SEAM.width / k} {...dash} />
+          <path d={MARK_SEAM} stroke={C.cream} strokeWidth={SEAM.core / k} {...dash} />
+        </g>
+      ) : null}
       <Eyes s={{ open: 1 - clamp(blink) }} />
     </g>
   );

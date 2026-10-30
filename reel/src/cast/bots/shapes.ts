@@ -50,7 +50,7 @@ export const BUBBLE = {
 
 /* ──────────────────────────────── Cube ──────────────────────────────── */
 // A rounded cube seen slightly from above: a 200 px front face, the top face
-// visible behind it, a short antenna with a ball tip, a night screen with two
+// visible behind it, a short antenna with a ball tip (on the top face's centre), a night screen with two
 // square eyes. Bottom on the stage line.
 const CUBE_TOP = -238; // back edge of the top face
 const CUBE_FRONT_TOP = -200;
@@ -67,9 +67,11 @@ export const CUBE = {
   screenCentre: P(0, -109),
   eyes: [P(-31, -111), P(31, -111)],
   eyeSize: 25,
-  antennaBase: P(36, -224),
-  antennaLen: 52,
-  antennaTilt: 7, // degrees, top to the right
+  // On the top face's centre, leaning a little left: between Diablo's eyes,
+  // never under one of them.
+  antennaBase: P(0, -219),
+  antennaLen: 42,
+  antennaTilt: -6, // degrees, top to the right (negative leans left)
   ballR: 11,
   shadeOffset: P(-13, -44),
 };

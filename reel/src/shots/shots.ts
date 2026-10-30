@@ -424,7 +424,7 @@ const flickHand = (f: number): HandProps => {
   };
   const tremble = 1.2;
   const onShell = (k: BotKind, p: Pt) => botPoint(k, p, learnBotPose(f, k), f);
-  if (k1 > 0 && k1 < 1) return { ...hover, ...visit(k1, onShell('orb', h.orb.cracks[0].points[0]), 4), tremble, warm: 0.5 };
+  if (k1 > 0 && k1 < 1) return { ...hover, ...visit(k1, onShell('orb', h.orb.cracks[0].points[0]), -24), tremble, warm: 0.5 };
   if (k2 > 0 && k2 < 1) return { ...hover, ...visit(k2, onShell('cube', h.cube.cracks[0].points[0]), 24), tremble, warm: 0.5 };
   const sink = easeInCubic(invLerp(EVENTS.crack2.at + 10, EVENTS.eyesNarrow + 4, f)) * 640;
   return { ...hover, y: hover.y + sink, tremble, warm: 0.5 };

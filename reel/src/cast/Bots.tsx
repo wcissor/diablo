@@ -15,7 +15,7 @@ import { resolvePose } from './bots/pose';
 import { BUBBLE, CUBE, ORB, outlineLocal } from './bots/shapes';
 import { bboxOf } from './bots/geom';
 
-export { makeCracks, makeHairline, freeShellPoint, isFreeShell } from './bots/cracks';
+export { makeCracks, makeHairline, freeShellPoint, isFreeShell, crackAt, WEAK_EYE_CLEAR } from './bots/cracks';
 export type { BotCrack, BotCrackSet, BotWeakSpot, ImpactInfo, MakeCracksOpts } from './bots/cracks';
 export { Shards, SHARD_LIFE } from './bots/Shards';
 export { pulseOf } from './bots/CrackLayer';
@@ -118,9 +118,11 @@ export function botPoint(kind: BotKind, p: Pt, pose: BotPose = {}, frame = 0): P
 }
 
 // The top centre of the shell (neutral pose), where a claw or the tail tip lands.
+// The cube's antenna stands on its top face's centre, so its point is on the
+// top face 34 px to the right of it (clear of the base; the antenna leans left).
 export function botTop(kind: BotKind): Pt {
   const a = BOTS[kind];
   if (kind === 'bubble') return { x: a.cx + BUBBLE.centre.x, y: a.feetY + BUBBLE.centre.y - BUBBLE.b };
-  if (kind === 'cube') return { x: a.cx + CUBE.topCentre.x, y: a.feetY + CUBE.topCentre.y };
+  if (kind === 'cube') return { x: a.cx + CUBE.topCentre.x + 34, y: a.feetY + CUBE.topCentre.y };
   return { x: a.cx + ORB.centre.x, y: a.feetY + ORB.centre.y - ORB.r };
 }

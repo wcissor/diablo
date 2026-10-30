@@ -92,6 +92,9 @@ const weakRoom = (kind: BotKind, p: Pt, r: number, depthK: number, eyeMin: numbe
   const a = BOTS[kind];
   const x = p.x - a.cx;
   const y = p.y - a.feetY;
+  // The bubble's cheeks: below its eye line only the tail area (lower left) is
+  // allowed; the top, the shoulders and the tail area are its free shell.
+  if (kind === 'bubble' && y > BUBBLE.eyes[0].y - 8 && x > BUBBLE.eyes[0].x - 30) return false;
   if (kind === 'cube') {
     const m = r * 0.75 + 5;
     const dx = Math.max(-72 - x, 0, x - 72);
@@ -134,6 +137,7 @@ interface WalkOpts {
   jitter: number; // degrees per step
   pull: number; // 0..1 pull back toward the starting heading
   kink: number; // chance per step of a sharp turn (porcelain cracks run straight, then kink)
+  hug?: number; // times it may turn along the shell's edge instead of ending there (while short)
 }
 
 // Where segment a→b first crosses segment c→d (param along a→b), or null.
@@ -149,7 +153,7 @@ const crossAt = (a: Pt, b: Pt, c: Pt, d: Pt): number | null => {
   return u >= 0 && u <= 1 && v >= 0 && v <= 1 ? u : null;
 };
 
-const MAX_SWING = 62 * DEG; // a crack never bends more than this off its first heading
+const MAX_SWING = 74 * DEG; // a crack never bends more than this off its first heading
 
 const walk = (kind: BotKind, start: Pt, heading: number, maxLen: number, R: () => number, o: WalkOpts, others: Pt[][] = []): Pt[] => {
   const pts: Pt[] = [start];
@@ -160,6 +164,7 @@ const walk = (kind: BotKind, start: Pt, heading: number, maxLen: number, R: () =
   let len = 0;
   const side = R() < 0.5 ? 1 : -1; // which way it prefers to swerve round a face
   let swerves = 0; // it may swerve round a face once or twice, then it stops (never hugs it)
+  let hugs = 0;
   for (let guard = 0; guard < 90 && len < maxLen; guard++) {
     const step = Math.min(maxLen - len, o.stepMin + (o.stepMax - o.stepMin) * R());
     if (step < 2) break;
@@ -190,7 +195,7 @@ const walk = (kind: BotKind, start: Pt, heading: number, maxLen: number, R: () =
             return pts;
           }
         }
-        if (turn !== 0 && ++swerves > 2) return pts;
+        if (turn !== 0 && ++swerves > 3 + hugs) return pts;
         cur = nx;
         if (turn !== 0) {
           h = hh;
@@ -200,6 +205,11 @@ const walk = (kind: BotKind, start: Pt, heading: number, maxLen: number, R: () =
         break;
       }
       if (turn === 0 && !inAvoid(kind, nx) && insideDepth(nx, shellStage(kind)) < 1.5) {
+        // Runs toward the edge while still short: bend along the rim instead.
+        if (hugs < (o.hug ?? 0) && len < maxLen * 0.62 && insideDepth(cur, shellStage(kind)) > 9) {
+          hugs++;
+          continue;
+        }
         // Runs off the shell: carry it to the edge and stop there.
         let lo = 0;
         let hi = 1;
@@ -279,13 +289,13 @@ export const crackAt = (cr: Crack, s: number) => {
 };
 
 // A jagged opening: alternating long and short radii (unit size), chipped.
-const blobPts = (R: () => number, n = 11): Pt[] => {
+const blobPts = (R: () => number, n = 12): Pt[] => {
   const pts: Pt[] = [];
   const off = R() * Math.PI * 2;
   for (let i = 0; i < n; i++) {
-    const a = off + (i / n) * Math.PI * 2 + (R() - 0.5) * 0.4;
-    const r = (i % 2 ? 0.72 : 0.94) + R() * 0.2;
-    pts.push({ x: Math.cos(a) * r, y: Math.sin(a) * r * 0.92 });
+    const a = off + (i / n) * Math.PI * 2 + (R() - 0.5) * 0.45;
+    const r = (i % 2 ? 0.7 + R() * 0.18 : 0.92 + R() * 0.2) * (i % 4 === 0 ? 1.05 : 1);
+    pts.push({ x: Math.cos(a) * r, y: Math.sin(a) * r * 0.9 });
   }
   return pts;
 };
@@ -336,13 +346,26 @@ const rootDir = (pts: Pt[]) => {
 };
 const angGap = (a: number, b: number) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
 
-// 5–8 cracks branching from the impact points (claw points, stage coords) across
-// the shell, with 2–3 ember weak spots at their junctions. `count` overrides the
-// seeded 5–8. Every crack is at least MIN_MAIN (mains) / MIN_FORK (forks) long,
-// and every drawn impact roots at least one crack.
+// 5–8 cracks (mains + forks; 8 is the natural look) branching from the impact
+// points (claw points, stage coords) across the shell as smooth curves, with
+// 2–3 ember weak spots on them, well clear of the face. `count` = mains +
+// forks, 5..8 (default 8). Every crack is at least MIN_MAIN (mains) / MIN_FORK
+// (forks) long, and every drawn impact roots at least one crack.
 export function makeCracks(kind: BotKind, impacts: Pt[], seed: string, count?: number, opts: MakeCracksOpts = {}): CrackSet {
-  const R = seq(`cracks:${kind}:${seed}`);
-  const n = Math.max(5, Math.min(8, Math.round(count ?? 5 + Math.floor(R() * 4))));
+  // A network that leaves no room for two weak spots off the face is walked
+  // again from a varied seed (deterministic; rarely needed).
+  let best: BotCrackSet | null = null;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const set = buildCracks(kind, impacts, seed, attempt, count, opts);
+    if (!best || set.weakSpots.length > best.weakSpots.length) best = set;
+    if (set.weakSpots.length >= 2) break;
+  }
+  return best!;
+}
+
+function buildCracks(kind: BotKind, impacts: Pt[], seed: string, attempt: number, count?: number, opts: MakeCracksOpts = {}): BotCrackSet {
+  const R = seq(`cracks:${kind}:${seed}${attempt ? `#${attempt}` : ''}`);
+  const n = Math.max(5, Math.min(8, Math.round(count ?? 8)));
   const a = BOTS[kind];
   const c = shellCentreLocal(kind);
   const centre = { x: c.x + a.cx, y: c.y + a.feetY };
@@ -368,9 +391,16 @@ export function makeCracks(kind: BotKind, impacts: Pt[], seed: string, count?: n
   const g0 = live();
   const g = g0.reduce((s, im) => ({ x: s.x + im.at.x / g0.length, y: s.y + im.at.y / g0.length }), { x: 0, y: 0 });
 
-  const mainOpts: WalkOpts = { stepMin: 14, stepMax: 26, jitter: 6, pull: 0.12, kink: 0.2 };
+  const mainOpts: WalkOpts = { stepMin: 15, stepMax: 28, jitter: 6, pull: 0.12, kink: 0.18, hug: 2 };
   const cracks: BotCrack[] = [];
-  const others = () => cracks.map((cr) => cr.points);
+  // Later cracks end where they meet the drawn curve of an earlier one.
+  const thinned: Pt[][] = [];
+  const others = () => thinned;
+  const add = (cr: BotCrack) => {
+    cracks.push(cr);
+    thinned.push(cr.dense.filter((_, k) => k % 3 === 0 || k === cr.dense.length - 1));
+  };
+  const mainLen = () => 175 + R() * 90;
   const dirsAt = (p: Pt) => cracks.filter((cr) => cr.main && dist(cr.points[0], p) < 0.5).map((cr) => rootDir(cr.points));
 
   // The first heading near `h` (tried in widening swings) that gives a crack of
@@ -378,21 +408,30 @@ export function makeCracks(kind: BotKind, impacts: Pt[], seed: string, count?: n
   const SWINGS = [0, 22, -22, 44, -44, 66, -66, 92, -92, 120, -120, 150, -150, 180];
   const walkNear = (p: Pt, h: number, len: number, minLen: number, swings = SWINGS): Pt[] | null => {
     const dirs = dirsAt(p);
+    // Of the near headings, the one giving the longest crack (a wide swing costs a little).
+    let best: Pt[] | null = null;
+    let bestScore = -Infinity;
     for (const sw of swings) {
+      if (best && Math.abs(sw) > 92) break; // only swing round further when nothing near worked
       const pts = walk(kind, p, h + sw * DEG, len, R, mainOpts, others());
-      if (pts.length < 2 || polyLength(pts) < minLen) continue;
+      const l = polyLength(pts);
+      if (pts.length < 2 || l < minLen) continue;
       const d = rootDir(pts);
       if (dirs.some((o) => angGap(o, d) < MIN_SEP)) continue;
-      return pts;
+      const score = l - Math.abs(sw) * 0.55;
+      if (score > bestScore) {
+        bestScore = score;
+        best = pts;
+      }
     }
-    return null;
+    return best;
   };
   // The longest crack from `p` over a sweep of 16 headings.
   const sweepLongest = (p: Pt, h0: number): Pt[] | null => {
     const dirs = dirsAt(p);
     let best: Pt[] | null = null;
     for (let s = 0; s < 16; s++) {
-      const pts = walk(kind, p, h0 + (s / 16) * Math.PI * 2, 105 + R() * 85, R, mainOpts, others());
+      const pts = walk(kind, p, h0 + (s / 16) * Math.PI * 2, mainLen(), R, mainOpts, others());
       if (pts.length < 2 || dirs.some((o) => angGap(o, rootDir(pts)) < MIN_SEP)) continue;
       if (!best || polyLength(pts) > polyLength(best)) best = pts;
     }
@@ -402,7 +441,8 @@ export function makeCracks(kind: BotKind, impacts: Pt[], seed: string, count?: n
   // Mains: at least one per impact; a lone impact gets a star of them (a fan
   // over the inward 200° when it sits near the shell's edge).
   const imps = g0.map((im) => im.at);
-  const mains = imps.length === 1 ? Math.max(3, n - 2) : Math.max(imps.length, Math.min(n - 1, Math.ceil(n * 0.6)));
+  // About half mains, half forks: the network branches generously.
+  const mains = imps.length === 1 ? Math.max(3, Math.ceil(n / 2)) : Math.max(imps.length, Math.ceil(n / 2));
   const perImpact = imps.map((_, j) => Math.floor(mains / imps.length) + (j < mains % imps.length ? 1 : 0));
   g0.forEach((im, j) => {
     const p = im.at;
@@ -428,13 +468,13 @@ export function makeCracks(kind: BotKind, impacts: Pt[], seed: string, count?: n
       if (lone && !nearEdge) h = base + Math.PI / k + (i / k) * Math.PI * 2 + (R() - 0.5) * 0.45;
       else if (lone) h = base + (k === 1 ? 0 : (i / (k - 1) - 0.5) * fan) + (R() - 0.5) * 0.3;
       else h = base + (k === 1 ? 0 : (i / (k - 1) - 0.5) * Math.min(150, 62 * (k - 1)) * DEG) + (R() - 0.5) * 0.4;
-      const pts = walkNear(p, h, 105 + R() * 85, MIN_MAIN);
-      if (pts) cracks.push(toCrack(pts, 0, -1, true));
+      const pts = walkNear(p, h, mainLen(), MIN_MAIN);
+      if (pts) add(toCrack(pts, 0, -1, true, R));
     }
     // Every impact roots a crack: sweep the headings if its own all failed.
     if (!dirsAt(p).length) {
       const pts = sweepLongest(p, toC);
-      if (pts && polyLength(pts) >= MIN_ROOTED) cracks.push(toCrack(pts, 0, -1, true));
+      if (pts && polyLength(pts) >= MIN_ROOTED) add(toCrack(pts, 0, -1, true, R));
       else im.dropped = 'no-room';
     }
   });
@@ -458,79 +498,109 @@ export function makeCracks(kind: BotKind, impacts: Pt[], seed: string, count?: n
     const p = freeShellPoint(kind, { x: centre.x, y: centre.y - 40 }, 8);
     info.push({ aimed: p, at: p, moved: 0 });
     const pts = sweepLongest(p, -Math.PI / 2);
-    if (pts) cracks.push(toCrack(pts, 0, -1, true));
+    if (pts) add(toCrack(pts, 0, -1, true, R));
   }
 
-  // Forks: branch off the longer cracks part-way along.
-  const forkOpts: WalkOpts = { stepMin: 10, stepMax: 18, jitter: 7, pull: 0.12, kink: 0.2 };
+  // Forks: branch off the cracks part-way along, spread over the mains first.
+  const forkOpts: WalkOpts = { stepMin: 11, stepMax: 19, jitter: 7, pull: 0.12, kink: 0.2 };
   const junctions: { p: Pt; angle: number; links: WeakLink[] }[] = [];
-  const fork = (minParent: number, minLen: number, tries: number) => {
+  const forksOn = (i: number) => cracks.filter((cr) => cr.parent === i).length;
+  const fork = (minParent: number, minLen: number, tries: number, mainsOnly: boolean) => {
     for (let t0 = 0; cracks.length < n && t0 < tries; t0++) {
       const order = cracks
-        .map((cr, i) => ({ i, w: cr.length * (cr.main ? 1 : 0.5) * (0.6 + R()) }))
+        .map((cr, i) => ({ i, w: (cr.length * (cr.main ? 1 : 0.45) * (0.6 + R())) / (1 + forksOn(i)) }))
+        .filter((o) => !mainsOnly || cracks[o.i].main)
         .sort((x, y) => y.w - x.w);
       const pi = order[Math.min(order.length - 1, Math.floor(R() * Math.min(3, order.length)))]?.i;
       if (pi === undefined) return;
       const parent = cracks[pi];
       if (parent.length < minParent) continue;
-      const t = 0.3 + R() * 0.38;
-      const at = pointAlong(parent.points, parent.length * t);
-      const turn = (R() < 0.5 ? 1 : -1) * (32 + R() * 30) * DEG;
-      if (junctions.some((jn) => dist(jn.p, at.p) < 16)) continue; // forks keep apart (no double forks)
-      const pts = walk(kind, at.p, at.angle + turn, 30 + R() * 45, R, forkOpts, others());
+      const t = 0.22 + R() * 0.5;
+      const at = crackAt(parent, parent.length * t);
+      const turn = (R() < 0.5 ? 1 : -1) * (30 + R() * 32) * DEG;
+      if (junctions.some((jn) => dist(jn.p, at.p) < 22)) continue; // forks keep apart (no double forks)
+      // the longer of the two sides it could leave on
+      const want = 55 + R() * 65;
+      const a1 = walk(kind, at.p, at.angle + turn, want, R, forkOpts, others());
+      const a2 = walk(kind, at.p, at.angle - turn, want, R, forkOpts, others());
+      const pts = polyLength(a2) > polyLength(a1) * 1.25 ? a2 : a1;
       if (pts.length < 3 || polyLength(pts) < minLen) continue;
       const idx = cracks.length;
-      cracks.push(toCrack(pts, parent.rootDist + parent.length * t, pi, false));
+      add(toCrack(pts, parent.rootDist + parent.length * t, pi, false, R, 1.8, t));
       junctions.push({ p: at.p, angle: at.angle, links: [{ i: pi, t }, { i: idx, t: 0 }] });
     }
   };
-  fork(40, MIN_FORK, 60);
+  fork(50, MIN_FORK + 6, 60, true);
+  fork(40, MIN_FORK, 60, false);
   // Still short: more mains from the impacts, round the free headings.
   for (let round = 0; cracks.length < n && round < 3; round++) {
     for (const im of live()) {
       if (cracks.length >= n) break;
       const p = im.at;
       const toC = Math.atan2(centre.y - p.y, centre.x - p.x);
-      const pts = walkNear(p, toC + (R() - 0.5) * 0.6, 90 + R() * 70, MIN_MAIN, [0, 30, -30, 60, -60, 90, -90, 120, -120, 150, -150, 180]);
-      if (pts) cracks.push(toCrack(pts, 0, -1, true));
+      const pts = walkNear(p, toC + (R() - 0.5) * 0.6, 110 + R() * 80, MIN_MAIN, [0, 30, -30, 60, -60, 90, -90, 120, -120, 150, -150, 180]);
+      if (pts) add(toCrack(pts, 0, -1, true, R));
     }
   }
-  fork(30, MIN_FORK, 60);
-  fork(24, 16, 40); // last resort, so `count` always holds (never needed in a 3,000-set sweep)
+  fork(30, MIN_FORK, 60, false);
+  fork(24, 16, 40, false); // last resort, so `count` always holds
 
   const imps2 = live().map((im) => im.at);
-  // Impact points that root two or more cracks are junctions too.
-  imps2.forEach((p) => {
-    const rooted = cracks.map((cr, i) => ({ cr, i })).filter(({ cr }) => cr.main && dist(cr.points[0], p) < 0.5);
-    if (rooted.length >= 2) junctions.push({ p, angle: pointAlong(rooted[0].cr.points, 6).angle, links: rooted.map(({ i }) => ({ i, t: 0 })) });
-  });
 
   // The crack the claw traces in shot 4: the longest main (rooted at an impact).
   const longest = cracks.reduce((best, cr, i) => (cr.main && (!cracks[best].main || cr.length > cracks[best].length) ? i : best), 0);
 
-  // 2–3 weak spots at junctions (forks first: they sit out on the shell).
-  const want = 2 + (R() < 0.5 ? 1 : 0);
+  // 2–3 weak spots: big ember openings on the cracks, out on the shell (its top,
+  // sides and lower edge), never near the face. Fork junctions are preferred.
+  const want = 2 + (R() < 0.6 ? 1 : 0);
   const weakSpots: BotWeakSpot[] = [];
-  // level 0: clear of the face; 1: face clearance relaxed; 2: last resort (closer to edges and to each other)
-  const place = (p: Pt, angle: number, links: WeakLink[], level: 0 | 1 | 2 = 0) => {
-    if (weakSpots.length >= want) return;
-    const r = (kind === 'cube' ? 10 : 10.5) + R() * 3.5;
-    if (!okAt(kind, p, r + [6, 3, 1][level]) || (level === 0 && !faceClear(kind, p))) return;
-    if (weakSpots.some((w) => dist(w, p) < [40, 30, 24][level])) return;
-    if (imps2.some((q) => dist(q, p) < r + 9) && !links.every((l) => l.t === 0)) return; // not on top of a puncture
-    weakSpots.push({ x: p.x, y: p.y, r, pts: blobPts(R), angle, links });
-  };
-  junctions.forEach((j) => place(j.p, j.angle, j.links));
-  const along = (i: number, t: number, level: 0 | 1 | 2 = 0) => {
-    const q = pointAlong(cracks[i].points, cracks[i].length * t);
-    place(q.p, q.angle, [{ i, t }], level);
-  };
-  if (weakSpots.length < 2) for (const t of [0.5, 0.75, 0.3, 0.9]) along(longest, t);
-  for (let i = 0; i < cracks.length && weakSpots.length < 2; i++) for (const t of [0.6, 0.4, 0.8]) along(i, t);
-  // Always 2: relax the face clearance if the face left no room, then the rest.
-  junctions.forEach((j) => weakSpots.length < 2 && place(j.p, j.angle, j.links, 1));
-  for (let i = 0; i < cracks.length && weakSpots.length < 2; i++) for (const t of [0.5, 0.3, 0.7, 0.9]) along(i, t, 1);
-  for (let i = 0; i < cracks.length && weakSpots.length < 2; i++) for (let t = 0.2; t < 0.99; t += 0.1) along(i, t, 2);
+  const baseR = kind === 'cube' ? 18 : 19.5;
+  type Cand = { p: Pt; angle: number; links: WeakLink[]; junction: boolean; jit: number; impact?: boolean };
+  const cands: Cand[] = [];
+  junctions.forEach((j, k) => cands.push({ ...j, junction: true, jit: rnd(`${seed}:${attempt}:wj:${k}`) }));
+  // A strike point itself may break wide open (the opening then replaces its puncture).
+  imps2.forEach((p, k) => {
+    const rooted = cracks.map((cr, i) => ({ cr, i })).filter(({ cr }) => cr.main && dist(cr.points[0], p) < 0.5);
+    if (rooted.length) cands.push({ p, angle: rootDir(rooted[0].cr.points), links: rooted.map(({ i }) => ({ i, t: 0 })), junction: false, impact: true, jit: rnd(`${seed}:${attempt}:wi:${k}`) });
+  });
+  cracks.forEach((cr, i) => {
+    for (let t = 0.14; t <= 0.95; t += 0.035) {
+      const q = crackAt(cr, cr.length * t);
+      cands.push({ p: q.p, angle: q.angle, links: [{ i, t }], junction: false, jit: rnd(`${seed}:${attempt}:wc:${i}:${t.toFixed(3)}`) });
+    }
+  });
+  const eyeK = kind === 'orb' ? 8 : 0; // the orb's one eye sits mid-sphere: keep further off it
+  // Looser rules cost score, so a roomier spot elsewhere beats a squeezed one;
+  // the last level is only for a third spot never, for the first two always.
+  const LEVELS = [
+    { rK: 1, depthK: 1.0, eye: 82 + eyeK, sep: 80, imp: 18, cost: 0 },
+    { rK: 0.94, depthK: 0.8, eye: 78 + eyeK, sep: 66, imp: 12, cost: 22 },
+    { rK: 0.88, depthK: 0.55, eye: WEAK_EYE_CLEAR + 2, sep: 54, imp: 8, cost: 55 },
+    { rK: 0.85, depthK: 0.35, eye: WEAK_EYE_CLEAR + 1, sep: 44, imp: 6, cost: 120 },
+  ];
+  for (let spot = 0; spot < want; spot++) {
+    const rv = baseR + (R() - 0.5) * 4;
+    let best: { c: Cand; r: number } | null = null;
+    let bestScore = -Infinity;
+    LEVELS.forEach((lv, li) => {
+      if (spot >= 2 && li > 1) return; // a third spot only where there is real room
+      const r = rv * lv.rK;
+      for (const c of cands) {
+        if (!weakRoom(kind, c.p, r, lv.depthK, lv.eye)) continue;
+        if (weakSpots.some((w) => dist(w, c.p) < Math.max(lv.sep, (w.r + r) * 1.6))) continue;
+        if (imps2.some((q) => dist(q, c.p) < (c.impact ? (dist(q, c.p) < 0.5 ? -1 : r * 0.9) : r + lv.imp))) continue;
+        const spread = weakSpots.length ? Math.min(...weakSpots.map((w) => dist(w, c.p))) : eyeClearance(kind, c.p) * 0.6;
+        const score = spread + (c.junction ? 22 : c.impact ? 8 : 0) + Math.min(30, insideDepth(c.p, shell)) * 0.4 + c.jit * 12 - lv.cost;
+        if (score > bestScore) {
+          bestScore = score;
+          best = { c, r };
+        }
+      }
+    });
+    if (!best) break;
+    const { c, r } = best as { c: Cand; r: number };
+    weakSpots.push({ x: c.p.x, y: c.p.y, r, pts: blobPts(R), angle: c.angle, links: c.links });
+  }
 
   const reach = cracks.reduce((m, cr) => Math.max(m, cr.rootDist + cr.length), 1);
   const set: BotCrackSet = { kind, cracks, weakSpots, longest, reach, impacts: live().map((im) => im.at), impactInfo: info };
@@ -553,7 +623,7 @@ export function makeHairline(kind: BotKind, at: Pt, seed: string, length = 58): 
     if (polyLength(pts) > polyLength(best)) best = pts;
     if (polyLength(best) > length * 0.85) break;
   }
-  const crack = toCrack(best, 0, -1, true);
+  const crack = toCrack(best, 0, -1, true, R, 1.2);
   const set: BotCrackSet = { kind, cracks: [crack], weakSpots: [], longest: 0, reach: Math.max(1, crack.length), impacts: [], hairline: true };
   return set;
 }

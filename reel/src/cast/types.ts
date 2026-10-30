@@ -10,8 +10,8 @@ export type { BotKind, Pt };
 /* ───────────────────────── Bots (src/cast/Bots.tsx) ───────────────────────── */
 
 export interface Crack {
-  d: string; // SVG path in stage coordinates, from its root (the impact) outward
-  length: number; // path length in px
+  d: string; // SVG path in stage coordinates, from its root (the impact) outward (smooth cubics; the seam is drawn on the same path)
+  length: number; // path length in px (= getLength(d))
   points: Pt[]; // the polyline the path was built from (root first)
 }
 
@@ -30,6 +30,8 @@ export interface CrackState {
   seal: number[]; // per crack, 0..1 how far gold has flowed in from the root
   warm: number; // 0..1 warm gold glow on the shell after sealing (fades over 1 s)
   flash?: number; // 0..1 ember flash along a fresh hairline crack (shot 5)
+  glint?: number; // 0..1 a short cream highlight sweeping along every sealed seam, root to tip, with a tiny sparkle at each tip near the end (the 'evolves' beat); 0 or 1 = at rest
+  pop?: number[]; // per crack, 0..1 through a quick warm sparkle at the seam's end just after it closes (0 or 1 = none)
 }
 
 export interface BotPose {

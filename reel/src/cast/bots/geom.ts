@@ -270,7 +270,7 @@ export const ribbonD = (c: { pts: Pt[]; cum: number[] }, l0: number, l1: number,
       const ang = (k / 6) * Math.PI;
       const nx = -t.y * Math.cos(ang) + sign * t.x * Math.sin(ang);
       const ny = t.x * Math.cos(ang) + sign * t.y * Math.sin(ang);
-      out.push(`${f1(p.x + nx * w * (sign === 1 ? 1 : 1))} ${f1(p.y + ny * w)}`);
+      out.push(`${f1(p.x + nx * w)} ${f1(p.y + ny * w)}`);
     }
     return out;
   };
@@ -285,3 +285,18 @@ export const ribbonD = (c: { pts: Pt[]; cum: number[] }, l0: number, l1: number,
 // A slow seeded swell along a curve, −1..1 (for the width of cracks and seams).
 export const swell = (seed: number, s: number) =>
   Math.sin(s * 0.11 + seed * 2.3) * 0.6 + Math.sin(s * 0.29 + seed * 5.1) * 0.4;
+
+// A closed smooth outline through a polygon's points (uniform Catmull-Rom).
+export const smoothClosedD = (pts: Pt[]): string => {
+  const n = pts.length;
+  if (n < 3) return polyD(pts);
+  let d = `M${r2(pts[0].x)} ${r2(pts[0].y)}`;
+  for (let i = 0; i < n; i++) {
+    const p0 = pts[(i - 1 + n) % n];
+    const p1 = pts[i];
+    const p2 = pts[(i + 1) % n];
+    const p3 = pts[(i + 2) % n];
+    d += `C${r2(p1.x + (p2.x - p0.x) / 6)} ${r2(p1.y + (p2.y - p0.y) / 6)} ${r2(p2.x - (p3.x - p1.x) / 6)} ${r2(p2.y - (p3.y - p1.y) / 6)} ${r2(p2.x)} ${r2(p2.y)}`;
+  }
+  return d + 'Z';
+};

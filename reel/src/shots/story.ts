@@ -59,9 +59,11 @@ export const strikeCracks = memo(
 );
 
 export const hairlines = memo(() => ({
-  // on free porcelain, below the faces: the orb's lower left, the band under the cube's screen (right end)
-  orb: makeHairline('orb', { x: BOTS.orb.cx - 30, y: 1124 }, 'hairline-orb', 50),
-  cube: makeHairline('cube', { x: BOTS.cube.cx + 66, y: 1154 }, 'hairline-cube', 34),
+  // on free porcelain clear of the strike's seams, where a claw can reach from
+  // the upper right without crossing his eyes: the orb's right shoulder, the
+  // cube's top face right of the antenna
+  orb: makeHairline('orb', { x: BOTS.orb.cx + 82, y: 1037 }, 'hairline-orb', 42),
+  cube: makeHairline('cube', { x: BOTS.cube.cx + 62, y: 968 }, 'hairline-cube', 26),
 }));
 
 export const pointOnCrack = (d: string, u: number): Pt => {

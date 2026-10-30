@@ -31,22 +31,22 @@ import { ap, bbox, chain, invv, polyD, R, S, samplePath, smoothD, stripD, stripE
 // only shows as webbing between them. One smooth closed curve through these
 // points (Catmull-Rom, so the curvature is continuous all the way round).
 const PALM_PTS: Pt[] = [
-  { x: -40, y: -127 }, // the wrist: its chord falls 9° to the right …
-  { x: 4, y: -123.5 },
-  { x: 48, y: -113 }, // … to here
-  { x: 74, y: -96 },
-  { x: 88, y: -66 },
-  { x: 100, y: -30 },
-  { x: 104, y: 0 }, // over the thumb's root
-  { x: 96, y: 26 },
-  { x: 72, y: 45 },
+  { x: -32, y: -127 }, // the wrist: its chord falls 9° to the right …
+  { x: 5, y: -124.5 },
+  { x: 40, y: -115.6 }, // … to here (72 px across, 11.4 px down: 9°)
+  { x: 67, y: -104 }, // a broad shoulder into the inner side …
+  { x: 86, y: -80 },
+  { x: 97, y: -46 },
+  { x: 104, y: -12 }, // … swelling over the thumb's root
+  { x: 99, y: 21 },
+  { x: 75, y: 44 },
   { x: 8, y: 55 }, // the lower edge (webbing between the fingers)
   { x: -58, y: 48 },
-  { x: -96, y: 24 },
-  { x: -110, y: -10 }, // the heel
-  { x: -104, y: -50 },
-  { x: -86, y: -90 },
-  { x: -66, y: -117 },
+  { x: -98, y: 24 },
+  { x: -111, y: -12 }, // the heel
+  { x: -107, y: -54 }, // a broad shoulder up the outer side
+  { x: -91, y: -92 },
+  { x: -64, y: -118 },
 ];
 export const PALM_PATH = smoothD(PALM_PTS);
 
@@ -76,16 +76,17 @@ interface Digit {
   cShrinkHi?: number; // extra claw foreshortening ∝ curl³ (only near a full strike curl)
   // Tucked (another claw is pointing): the finger folds toward us and its claw
   // hooks round tight in its own bend direction, so the tip turns back up
-  // toward the wrist, close under the palm. Fan angle, total claw bend and the
-  // foreshortened finger / claw lengths at point = 1.
-  tuck: { phi: number; turn: number; f: number; c: number; k?: Pt };
+  // toward the wrist, close under the palm. Fan angle (`phiOut` instead when
+  // the digit is outside the pointing one, fanning it clear), total claw bend,
+  // the foreshortened finger / claw lengths and a knuckle shift at point = 1.
+  tuck: { phi: number; phiOut?: number; turn: number; f: number; c: number; k?: Pt };
 }
 const DIGITS: Digit[] = [
   // (the outer claw fans out less past spread 0.5, keeping a spread hand off the right rail)
-  { k: { x: -60, y: 2 }, fLen: 82, cLen: 196, phi: -0.12, phiSpread: -0.22, phiSpreadOpen: -0.15, phiCurl: 0, turn: 0.6, turnCurl: 1.3, w: 0.94, fShrink: 0.21, tuck: { phi: -0.3, turn: 2.8, f: 0.4, c: 0.36 } },
+  { k: { x: -60, y: 2 }, fLen: 82, cLen: 196, phi: -0.12, phiSpread: -0.22, phiSpreadOpen: -0.15, phiCurl: 0, turn: 0.6, turnCurl: 1.3, w: 0.94, fShrink: 0.21, tuck: { phi: -0.42, turn: 2.8, f: 0.4, c: 0.3 } },
   // (the longest claw foreshortens a little more near a full curl, so the four tips land level)
-  { k: { x: -6, y: 8 }, fLen: 86, cLen: 216, phi: 0.0, phiSpread: -0.04, phiCurl: 0.0, turn: 0.62, turnCurl: 0.95, w: 1, fShrink: 0.21, cShrinkHi: 0.1, tuck: { phi: 0.04, turn: 2.8, f: 0.4, c: 0.36 } },
-  { k: { x: 50, y: 4 }, fLen: 82, cLen: 204, phi: 0.12, phiSpread: 0.16, phiCurl: 0.08, turn: 0.64, turnCurl: 0.6, w: 0.96, fShrink: 0.21, tuck: { phi: 0.3, turn: 2.8, f: 0.4, c: 0.36 } },
+  { k: { x: -6, y: 8 }, fLen: 86, cLen: 216, phi: 0.0, phiSpread: -0.04, phiCurl: 0.0, turn: 0.62, turnCurl: 0.95, w: 1, fShrink: 0.21, cShrinkHi: 0.1, tuck: { phi: 0.25, phiOut: -0.4, turn: 2.8, f: 0.4, c: 0.3 } },
+  { k: { x: 50, y: 4 }, fLen: 82, cLen: 204, phi: 0.12, phiSpread: 0.16, phiCurl: 0.08, turn: 0.64, turnCurl: 0.6, w: 0.96, fShrink: 0.21, tuck: { phi: 0.3, phiOut: -0.45, turn: 2.8, f: 0.4, c: 0.3 } },
   // The thumb: from the inner side, angled in, its claw hooking back toward the
   // fingers. Curling tucks its root down the palm and lets the claw reach out a
   // touch, so at strike curl (0.8–1) its tip lands on the same shallow arc as
@@ -103,7 +104,7 @@ const DIGITS: Digit[] = [
     kCurl: { x: -6, y: 20 },
     fShrink: 0.2,
     cShrink: -0.05,
-    tuck: { phi: 1.1, turn: -2.8, f: 0.45, c: 0.38, k: { x: -4, y: -12 } },
+    tuck: { phi: 1.3, turn: -2.8, f: 0.45, c: 0.34, k: { x: 0, y: -20 } },
   },
 ];
 
@@ -182,7 +183,7 @@ export const handGeometry = (p: PoseIn): HandGeo => {
       } else {
         const tk = dg.tuck;
         K = { x: mixv(K.x, dg.k.x + (tk.k?.x ?? 0)), y: mixv(K.y, dg.k.y + (tk.k?.y ?? 0)) };
-        phiK = mixv(phiK, tk.phi);
+        phiK = mixv(phiK, i < lead ? tk.phiOut ?? tk.phi : tk.phi);
         fLen = mixv(fLen, dg.fLen * tk.f);
         cLen = mixv(cLen, dg.cLen * tk.c);
         turn = mixv(turn, tk.turn);
@@ -425,7 +426,11 @@ export const Hand: React.FC<HandProps> = (p) => {
   const hatchR = 280 * Math.abs(p.scale ?? 1); // canvas px round the palm centre: covers the palm
   const ko = 2.5 * 2; // a 2.5 px night keyline outside, so a hand reads over the head
   const lead = pointIndex(p);
-  const order = (p.point ?? 0) > 0 ? [0, 1, 2, 3].filter((i) => i !== lead).concat(lead) : [0, 1, 2, 3];
+  // Pointing: the tucked fingers go inner → outer (each hook curls toward the
+  // inside, so its tip lies over its already-drawn neighbour), the thumb still
+  // over the inner finger as at rest (they overlap in curled poses, so the
+  // order cannot pop as point leaves 0), and the lead last, over them all.
+  const order = (p.point ?? 0) > 0 ? [2, 3, 1, 0].filter((i) => i !== lead).concat(lead) : [0, 1, 2, 3];
   return (
     <g>
       <HandDefs id={id} />

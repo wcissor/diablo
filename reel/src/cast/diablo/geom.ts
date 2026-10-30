@@ -308,3 +308,17 @@ export const roundRectPoly = (w: number, h: number, r: number, per = 8): Pt[] =>
 
 export const lerpPt = (p: Pt, q: Pt, t: number): Pt => ({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t });
 export const dist = (p: Pt, q: Pt) => Math.hypot(q.x - p.x, q.y - p.y);
+
+// Translate an absolute path made only of coordinate pairs (M/L/C/Z, implicit
+// repeats allowed, like the logo's paths) by (dx, dy).
+export const translateD = (d: string, dx: number, dy: number) => {
+  let k = 0;
+  return d.replace(/-?\d*\.?\d+(?:e-?\d+)?/g, (n) => `${f(parseFloat(n) + (k++ % 2 === 0 ? dx : dy))}`);
+};
+
+// The cream rim band of a shape: the shape minus itself shifted by `v` (local
+// units; 3 canvas px straight down for the rim on the top edges). Draw it with
+// fillRule evenodd inside a clip to the shape itself: `box` is a local
+// rectangle that contains the shape and its shifted copy.
+export const rimBandD = (d: string, v: Pt, box: { x: number; y: number; w: number; h: number }) =>
+  `M${f(box.x)} ${f(box.y)}H${f(box.x + box.w)}V${f(box.y + box.h)}H${f(box.x)}Z` + translateD(d, v.x, v.y);

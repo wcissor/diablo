@@ -19,6 +19,7 @@ import {
 import { CRESCENT_BOX } from '../logo';
 
 const ID = 'dtail';
+const KEYLINE = 2; // canvas px of the optional cream keyline, outside the shape
 const BOX = { x: CRESCENT_BOX.x - 60, y: CRESCENT_BOX.y - 60, w: CRESCENT_BOX.w + 120, h: CRESCENT_BOX.h + 120 };
 
 // Trace coordinates → stage coordinates for a crescent pose.
@@ -101,11 +102,12 @@ const CrescentDefs: React.FC = () => (
   </defs>
 );
 
-const Crescent: React.FC<{ pose: TailCrescentPose; seams: number; ember: number; warm: number; silhouette?: boolean }> = ({
+const Crescent: React.FC<{ pose: TailCrescentPose; seams: number; ember: number; warm: number; keyline: number; silhouette?: boolean }> = ({
   pose,
   seams,
   ember,
   warm,
+  keyline,
   silhouette,
 }) => {
   const m = crescentMatrix(pose);
@@ -123,6 +125,10 @@ const Crescent: React.FC<{ pose: TailCrescentPose; seams: number; ember: number;
   return (
     <g transform={svgM(m)}>
       <CrescentDefs />
+      {/* keyline: a 4 px cream stroke under the fill leaves a 2 px outline outside */}
+      {keyline > 0 ? (
+        <path d={CRESCENT_PATH} fill="none" stroke={C.cream} strokeOpacity={keyline} strokeWidth={(2 * KEYLINE) / k} strokeLinejoin="round" />
+      ) : null}
       <path d={CRESCENT_PATH} fill={C.cream} />
       <g clipPath={`url(#${ID}-clip)`}>
         <path d={CRESCENT_PATH} fill={C.maroon} transform={`translate(${rim.x} ${rim.y})`} />
@@ -235,7 +241,7 @@ export const ringWidth = (r: TailRing) => {
   };
 };
 
-const Ring: React.FC<{ ring: TailRing; ember: number; warm: number; silhouette?: boolean }> = ({ ring, ember, warm, silhouette }) => {
+const Ring: React.FC<{ ring: TailRing; ember: number; warm: number; keyline: number; silhouette?: boolean }> = ({ ring, ember, warm, keyline, silhouette }) => {
   const p = clamp(ring.progress);
   if (p <= 0.001) return null;
   const width = ringWidth(ring);
@@ -276,8 +282,14 @@ const Ring: React.FC<{ ring: TailRing; ember: number; warm: number; silhouette?:
         const st = ringStrip(ring, s0, s1, closed ? () => RING_W : width);
         if (silhouette) return <path key={i} d={stripD(st)} fill={C.night} />;
         const golds = gold > 0 ? goldSpans(s0, s1).map(([g0, g1]) => ringStrip(ring, g0, g1, closed ? () => RING_W : width)) : [];
+        // The keyline follows the band's two long edges (not the cuts where the
+        // back and front halves meet), plus the root's end if this piece starts it.
+        const keyD = keyline > 0 ? polyD(st.a, false) + polyD(st.b, false) + (!closed && s0 <= 1e-6 ? polyD([st.a[0], st.b[0]], false) : '') : '';
         return (
           <g key={i}>
+            {keyline > 0 ? (
+              <path d={keyD} fill="none" stroke={C.cream} strokeOpacity={keyline} strokeWidth={2 * KEYLINE} strokeLinejoin="round" strokeLinecap="round" />
+            ) : null}
             <path d={stripD(st)} fill={C.maroon} />
             <path d={stripUnderD(st, RING_W * 0.45, 0.5)} fill={`url(#${ID}-ring-hatch)`} opacity={0.18} />
             {ember > 0 ? <path d={stripUnderD(st, 3.5, 0.3)} fill={C.ember} opacity={0.85 * ember} /> : null}
@@ -301,6 +313,7 @@ const Ring: React.FC<{ ring: TailRing; ember: number; warm: number; silhouette?:
 export const Tail: React.FC<TailProps> = (p) => {
   const ember = clamp(p.ember ?? 0);
   const warm = clamp(p.warm ?? 0);
+  const keyline = p.silhouette ? 0 : clamp(p.keyline ?? 0);
   return (
     <g>
       <defs>
@@ -308,8 +321,8 @@ export const Tail: React.FC<TailProps> = (p) => {
           <line x1={HATCH.gap / 2} y1={-1} x2={HATCH.gap / 2} y2={HATCH.gap + 1} stroke={C.cream} strokeWidth={HATCH.width} />
         </pattern>
       </defs>
-      {p.ring ? <Ring ring={p.ring} ember={ember} warm={warm} silhouette={p.silhouette} /> : null}
-      {p.crescent ? <Crescent pose={p.crescent} seams={p.seams ?? 0} ember={ember} warm={warm} silhouette={p.silhouette} /> : null}
+      {p.ring ? <Ring ring={p.ring} ember={ember} warm={warm} keyline={keyline} silhouette={p.silhouette} /> : null}
+      {p.crescent ? <Crescent pose={p.crescent} seams={p.seams ?? 0} ember={ember} warm={warm} keyline={keyline} silhouette={p.silhouette} /> : null}
     </g>
   );
 };

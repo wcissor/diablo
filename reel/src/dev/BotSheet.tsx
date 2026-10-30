@@ -11,13 +11,15 @@ import { clamp } from '../lib/anim';
 // Dev sheet for the bots, by frame:
 //   0–99   idle at their real positions (bubble blinks at 20, tail wiggle 10–34)
 //   100    cowering: fear, looking up-left, squashed, leaning away
-//   150    cracked: weak spots glowing, shards mid-air
-//   200    half sealed
-//   250    fully sealed, warm glow
+//   150    cracked (8 cracks each): weak spots glowing, shards thrown off
+//   200    half sealed: the gold front part-way along, molten beads, a pop
+//   250    fully sealed: organic seams, gold patches, warm glow
 //   300    silhouettes on cream (the impact flash)
 //   350    a fresh hairline flashing on the orb and the cube
 //   400    cracked, at the tightest push-in (1.0815×) with the safe area drawn
-//   450    2.4× close-up of the cracked bubble; 500: the half-sealed orb
+//   450    sealed, the glint mid-sweep (glint 1 at 472; tip sparkles 462–472)
+//   500    cracked, the shards bouncing on the stage line (t 24 + 0.5 per frame)
+//   550    2× close-up of the cracked bubble; 575: the half-sealed orb
 
 const KINDS: BotKind[] = ['bubble', 'cube', 'orb'];
 
@@ -28,7 +30,7 @@ export const SHEET_IMPACTS: Record<BotKind, Pt[]> = {
     { x: 284, y: 980 },
     { x: 314, y: 986 },
   ],
-  cube: [{ x: 524, y: 963 }],
+  cube: [{ x: 626, y: 1150 }], // one point, near its lower-right corner band
   orb: [
     { x: 758, y: 991 },
     { x: 784, y: 973 },
@@ -38,42 +40,47 @@ export const SHEET_IMPACTS: Record<BotKind, Pt[]> = {
 };
 
 const SETS: Record<BotKind, CrackSet> = {
-  bubble: makeCracks('bubble', SHEET_IMPACTS.bubble, 'sheet'),
-  cube: makeCracks('cube', SHEET_IMPACTS.cube, 'sheet'),
-  orb: makeCracks('orb', SHEET_IMPACTS.orb, 'sheet'),
+  bubble: makeCracks('bubble', SHEET_IMPACTS.bubble, 'sheet', 8),
+  cube: makeCracks('cube', SHEET_IMPACTS.cube, 'sheet', 8),
+  orb: makeCracks('orb', SHEET_IMPACTS.orb, 'sheet', 8),
 };
 
 const HAIR: Partial<Record<BotKind, CrackSet>> = {
-  orb: makeHairline('orb', { x: 846, y: 1080 }, 'sheet-1'),
-  cube: makeHairline('cube', { x: 478, y: 1152 }, 'sheet-2'),
+  // on porcelain the sheet's seams leave free
+  orb: makeHairline('orb', { x: 850, y: 1128 }, 'sheet-1', 40),
+  cube: makeHairline('cube', { x: 462, y: 1000 }, 'sheet-2'),
 };
 
-const strike = (k: BotKind, frame: number, mode: 'cracked' | 'half' | 'sealed'): CrackState => {
+const rootDist = (set: CrackSet, i: number) => (set.cracks[i] as { rootDist?: number }).rootDist ?? 0;
+
+const strike = (k: BotKind, frame: number, mode: 'cracked' | 'half' | 'sealed', glint?: number): CrackState => {
   const set = SETS[k];
-  const n = set.cracks.length;
-  const seal = set.cracks.map((_, i) => {
-    if (mode === 'cracked') return 0;
-    if (mode === 'sealed') return 1;
-    const h = Math.floor(n / 2);
-    return i < h ? 1 : i === h ? 0.55 : 0;
-  });
+  // Half sealed: one gold front flowing out through the network from the impacts.
+  const reach = set.cracks.reduce((m, cr, i) => Math.max(m, rootDist(set, i) + cr.length), 1);
+  const G = reach * (0.5 + 0.004 * ((frame >= 575 ? frame - 575 : frame - 200) % 50));
+  const seal = set.cracks.map((cr, i) => (mode === 'cracked' ? 0 : mode === 'sealed' ? 1 : clamp((G - rootDist(set, i)) / cr.length)));
+  // A pop where a seam has just closed.
+  const pop = mode === 'half' ? set.cracks.map((cr, i) => clamp((G - rootDist(set, i) - cr.length) / 40)) : undefined;
   return {
     set,
     grow: 1,
-    weak: mode === 'cracked' ? 1 : mode === 'half' ? 0.55 : 0,
+    weak: mode === 'cracked' ? 1 : mode === 'half' ? 0.6 : 0,
     pulseFrame: frame,
     seal,
-    warm: mode === 'sealed' ? 0.85 : 0,
+    warm: mode === 'sealed' && glint === undefined ? 0.85 : 0,
+    glint,
+    pop,
   };
 };
 
 export const BotSheet: React.FC = () => {
   const frame = useCurrentFrame();
-  const seg = frame < 100 ? 'idle' : frame < 150 ? 'cower' : frame < 200 ? 'cracked' : frame < 250 ? 'half' : frame < 300 ? 'sealed' : frame < 350 ? 'sil' : frame < 400 ? 'hair' : frame < 450 ? 'safe' : 'zoom';
+  const seg =
+    frame < 100 ? 'idle' : frame < 150 ? 'cower' : frame < 200 ? 'cracked' : frame < 250 ? 'half' : frame < 300 ? 'sealed' : frame < 350 ? 'sil' : frame < 400 ? 'hair' : frame < 450 ? 'safe' : frame < 500 ? 'glint' : frame < 550 ? 'shards' : 'zoom';
 
   const cream = seg === 'sil';
   const camScale = seg === 'safe' ? 1.0815 : 1;
-  const zoom = seg === 'zoom' ? (frame < 500 ? { k: 2.4, x: 270, y: 1070 } : { k: 2.4, x: 800, y: 1060 }) : null;
+  const zoom = seg === 'zoom' ? (frame < 575 ? { k: 2, x: 270, y: 1070 } : { k: 2, x: 800, y: 1060 }) : null;
 
   const bots = KINDS.map((k) => {
     let cracks: CrackState[] | undefined;
@@ -82,7 +89,7 @@ export const BotSheet: React.FC = () => {
       if (k === 'bubble') pose = { tailWiggle: clamp((frame - 10) / 24) };
     } else if (seg === 'cower') {
       pose = { squash: 0.94, fear: 1, look: { x: -0.8, y: -0.9 }, lean: k === 'bubble' ? 3 : k === 'orb' ? -3 : 0, idle: false };
-    } else if (seg === 'cracked' || seg === 'safe' || (seg === 'zoom' && frame < 500)) {
+    } else if (seg === 'cracked' || seg === 'safe' || seg === 'shards' || (seg === 'zoom' && frame < 575)) {
       cracks = [strike(k, frame, 'cracked')];
       pose = { squash: 0.95, fear: 1, look: { x: -0.4, y: -0.8 }, lean: k === 'bubble' ? 2.5 : k === 'orb' ? -2.5 : 0, freeze: true };
     } else if (seg === 'half' || seg === 'zoom') {
@@ -91,6 +98,9 @@ export const BotSheet: React.FC = () => {
     } else if (seg === 'sealed') {
       cracks = [strike(k, frame, 'sealed')];
       pose = { squash: 1.04, bright: 1, look: { x: 0, y: -0.2 } };
+    } else if (seg === 'glint') {
+      cracks = [strike(k, frame, 'sealed', clamp(0.45 + (frame - 450) / 40))];
+      pose = { squash: 1.04, bright: 0.6, look: { x: 0, y: -0.2 } };
     } else if (seg === 'sil') {
       cracks = [strike(k, frame, 'cracked')];
       pose = { squash: 0.95, fear: 1, freeze: true };
@@ -108,7 +118,7 @@ export const BotSheet: React.FC = () => {
   return (
     <AbsoluteFill style={{ backgroundColor: cream ? C.cream : C.night }}>
       <Canvas>
-        {cream ? <rect x={0} y={0} width={1080} height={1920} fill={C.cream} /> : <LightPool id="bs" ember={seg === 'cracked' ? 1 : 0} warm={seg === 'sealed' ? 1 : 0} />}
+        {cream ? <rect x={0} y={0} width={1080} height={1920} fill={C.cream} /> : <LightPool id="bs" ember={seg === 'cracked' || seg === 'shards' ? 1 : 0} warm={seg === 'sealed' || seg === 'glint' ? 1 : 0} />}
         <g transform={zoom ? `translate(540 960) scale(${zoom.k}) translate(${-zoom.x} ${-zoom.y})` : undefined}>
           <Camera scale={camScale}>
             {!cream ? <StageLine id="bs" /> : null}
@@ -116,8 +126,9 @@ export const BotSheet: React.FC = () => {
               <Bot key={k} kind={k} frame={frame} cracks={cracks} silhouette={cream} {...pose} />
             ))}
             {seg === 'cracked' || seg === 'safe'
-              ? KINDS.map((k) => <Shards key={k} kind={k} impacts={SHEET_IMPACTS[k]} t={10 + (frame - (seg === 'safe' ? 400 : 150)) * 0.5} seed="sheet" />)
+              ? KINDS.map((k) => <Shards key={k} kind={k} impacts={SHEET_IMPACTS[k]} t={6 + (frame - (seg === 'safe' ? 400 : 150)) * 0.5} seed="sheet" />)
               : null}
+            {seg === 'shards' ? KINDS.map((k) => <Shards key={k} kind={k} impacts={SHEET_IMPACTS[k]} t={24 + (frame - 500) * 0.5} seed="sheet" />) : null}
             {cream ? KINDS.map((k) => <Shards key={k} kind={k} impacts={SHEET_IMPACTS[k]} t={1} seed="sheet" silhouette />) : null}
           </Camera>
           {seg === 'safe' ? (
