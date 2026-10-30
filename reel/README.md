@@ -1,10 +1,12 @@
 # Diablo — intro reel
 
 A 20-second vertical intro reel for **Diablo — AI that evolves AI**, for
-Instagram Reels and TikTok. Three porcelain bots look fine; Diablo pulls up
-behind them, strikes, finds their weak spots, seals every crack in gold, learns,
-and the bots come back stronger. Every frame is vector art drawn in code, in
-Diablo's own Gold Seam style; every sound is synthesised in code.
+Instagram Reels and TikTok, in a fast flat motion-graphics style on white and
+maroon at 120 BPM. Three bots pop in and look fine; Diablo's mark drops in, the
+camera dives into his eye, three slashes crack the bots, a lens finds each
+crack, white seams fix them, colour beats carry "AI that evolves AI", and
+everything collapses into a dot that draws his crescent for the end card.
+Every frame is vector art drawn in code; every sound is synthesised in code.
 
 This is its own Remotion project (React + TypeScript), separate from the app in
 the repository root.
@@ -15,9 +17,9 @@ the repository root.
 | --- | --- |
 | `out/diablo-intro-20s.mp4` | The main post: score, sound and words, no voice. 1080×1920, 30 fps, exactly 600 frames, H.264 High, AAC 48 kHz. |
 | `out/diablo-intro-20s-vo.mp4` | The same picture with a generated voice. Only made when a voice source works (see below). |
-| `out/cover.png` | 1080×1920 cover: the strike at 6.0 s with the name. |
+| `out/cover.png` | 1080×1920 cover: the three cracked bots at 6.9 s with the name. |
 | `out/captions.srt` | The on-screen lines with their times, for the voice cut. |
-| `out/qa/report.md` | One line per quality gate, with what was measured. |
+| `out/qa/report.md` | The checks run on this cut, with what was measured. |
 
 ## Render
 
@@ -25,13 +27,13 @@ the repository root.
 cd reel
 npm install
 scripts/render.sh            # audio, the PNG sequence, both cuts, cover, captions
-python3 scripts/qa/run_gates.py   # the quality gates → out/qa/report.md
+npm run qa                   # layout of every frame + the audio checks
 ```
 
 `scripts/render.sh --skip-audio` reuses the audio; `--skip-frames` re-encodes
-only. A full render takes about 15–30 minutes on four cores (the motion-blurred
-moves cost eight samples a frame). Python needs `numpy scipy pyloudnorm pillow`;
-the gates also use `ffmpeg` and `tesseract`.
+only. A full render takes about 3 minutes on four cores. Python needs
+`numpy scipy pillow`, plus `ffmpeg`. Rendering uses SwiftShader GL
+(`remotion.config.ts`): the swangle backend dropped 512 px raster tiles.
 
 Rendering uses the Chromium headless shell at
 `/opt/pw-browsers/chromium_headless_shell-1243/…`. Elsewhere, set
@@ -41,7 +43,7 @@ Rendering uses the Chromium headless shell at
 While working: `npm run studio` opens Remotion Studio, and
 `npx tsx scripts/stills.ts out/dev/x 30 144 300` renders a few frames with one
 bundle. `npx tsx scripts/check-layout.ts` checks every frame's layout (safe
-area, words clearance, right rail) from the scene state.
+area, words clearance, right rail) from the timeline itself.
 
 ## Change the words or the timing
 
@@ -61,21 +63,20 @@ keys (or run where edge-tts or Hugging Face is reachable) and run
 
 ## Music
 
-The score is synthesised in code. To use a commissioned or licensed track
-instead, drop it in as `audio/score.mp3`: the effects stay, and
-`audio/build/beat-shift.json` suggests, for each hard cut, the nearest beat in
-the track within 3 frames.
+The score is synthesised in code at 120 BPM (a beat is 15 frames): drums, bass,
+plucked arpeggios, stabs on the hits and colour beats, and a logo sting. The
+effects (pops, whooshes, slashes, the impact, lens blips, seam zips, type
+ticks) sit on the same grid, all cued from `src/config.ts`.
 
 ## Where things are
 
 ```
 src/config.ts         words, voice lines, beats, events (frames at 30 fps)
-src/theme.ts          the Gold Seam palette, the 9° slant, hatching, seams, type
-src/geometry.ts       canvas, safe zones, where everyone stands
+src/theme.ts          the palette (white, maroon, night, porcelain, ember) and type (Geist)
+src/geometry.ts       canvas, safe zones, where the bots stand
 src/logo.ts           the mark traced from the logo: head, crescent, eyes
-src/cast/             the bots, Diablo's head, hands, tail and the end-card mark
-src/stage/            light pool, stage line, grain, vignette, words, slit
-src/shots/            the six stage shots as frame → scene state, the end card
+src/v2/timeline.ts    the whole reel as pure functions of the frame
+src/v2/               the renderer, kinetic type, the flat mark, rings/ribbons/bursts
+src/cast/             the bots and their cracks and seams
 scripts/audio/        score and effects synthesis, mix, voice, captions, checks
-scripts/qa/           the quality gates
 ```

@@ -312,9 +312,7 @@ def build_voice(cfg: Config, lines: list[dict], files: list[Path], tmp: Path) ->
     mix = (score * duck_curve(mono, SCORE_DUCK_DB)[:, None] + sfx * duck_curve(mono, SFX_DUCK_DB)[:, None]
            + stereo)
     mix, gr = limit(mix, CEILING_DBTP - AAC_HEADROOM_DB - 0.25)
-    B, X, E = cfg['BEATS'], cfg['SFX'], cfg['EVENTS']
-    mix[cfg.s(B['silence']['from']):cfg.s(X['strikeWhoosh'])] = 0.0
-    mix[cfg.s(E['slitClose']['to']):] = 0.0
+    mix[cfg.s(cfg['EVENTS']['irisClose']['to']):] = 0.0  # silent on the black tail
     mix = fit_length(mix, N)
     write_wav(AUDIO_BUILD / 'voice.wav', stereo)
     write_wav(AUDIO_BUILD / 'mix-vo.wav', mix)

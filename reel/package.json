@@ -6,7 +6,7 @@
   "scripts": {
     "studio": "remotion studio src/index.ts",
     "render": "scripts/render.sh",
-    "qa": "npx tsx scripts/check-layout.ts && python3 scripts/qa/run_gates.py",
+    "qa": "npx tsx scripts/check-layout.ts && python3 scripts/audio/verify.py --strict",
     "stills": "tsx scripts/stills.ts",
     "typecheck": "tsc --noEmit"
   },

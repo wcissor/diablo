@@ -1,22 +1,33 @@
 import React from 'react';
 import { AbsoluteFill } from 'remotion';
-import { C, FONT, TYPE } from './theme';
+import { C, FONT } from './theme';
 import { END_CARD } from './config';
 import { IntroReel, useFonts } from './IntroReel';
 
-// out/cover.png: the reel without its words, rendered as a still at
-// COVER_FRAME (6.0 s: cracks glowing, Diablo looming), with the name centred
-// on x 540 at baseline y 440.
+// out/cover.png: the strike without its words, rendered as a still at
+// COVER_FRAME (the three bots cracked and glowing), with the name on top.
 export const Cover: React.FC = () => {
   useFonts();
   return (
-    <AbsoluteFill style={{ backgroundColor: C.night }}>
+    <AbsoluteFill>
       <IntroReel hideWords />
-      <svg width={1080} height={1920} viewBox="0 0 1080 1920" style={{ position: 'absolute', inset: 0 }}>
-        <text x={540} y={440} textAnchor="middle" fontFamily={FONT.serif} fontWeight={FONT.serifWeight} fontSize={TYPE.endName.size} fill={C.cream}>
-          {END_CARD.name}
-        </text>
-      </svg>
+      <div
+        style={{
+          position: 'absolute',
+          left: 0,
+          width: 1080,
+          top: 330,
+          textAlign: 'center',
+          fontFamily: FONT.sans,
+          fontWeight: 800,
+          fontSize: 160,
+          lineHeight: '170px',
+          letterSpacing: '-0.04em',
+          color: C.white,
+        }}
+      >
+        {END_CARD.name}
+      </div>
     </AbsoluteFill>
   );
 };

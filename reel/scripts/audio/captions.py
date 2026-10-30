@@ -20,9 +20,9 @@ def stamp(frame: int, fps: int) -> str:
 
 
 def cues(cfg) -> list[tuple[int, int, str]]:
-    out = [(s['wordsIn'], s['to'] + 1, '\n'.join(s['words'])) for s in cfg['SHOTS'] if s['words']]
+    out = [(s['wordsIn'], s['wordsOut'] + 6, '\n'.join(s['words'])) for s in cfg['SHOTS'] if s['words']]
     end = cfg['END_CARD']
-    out.append((end['nameIn'], cfg['EVENTS']['slitClose']['from'], end['name']))
+    out.append((end['nameIn'], end['out'], end['name']))
     return out
 
 

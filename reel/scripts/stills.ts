@@ -20,7 +20,7 @@ const main = async () => {
   const composition = await selectComposition({ serveUrl, id: comp, browserExecutable: BROWSER });
   for (const frame of frames) {
     const output = `${prefix}-${String(frame).padStart(3, '0')}.png`;
-    await renderStill({ serveUrl, composition, frame, output, browserExecutable: BROWSER, overwrite: true, chromiumOptions: { gl: 'swangle' } });
+    await renderStill({ serveUrl, composition, frame, output, browserExecutable: BROWSER, overwrite: true, chromiumOptions: { gl: (process.env.REMOTION_GL === 'default' ? null : (process.env.REMOTION_GL ?? 'swiftshader')) as never } });
     console.log(output);
   }
 };

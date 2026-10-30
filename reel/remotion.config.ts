@@ -7,4 +7,4 @@ Config.setBrowserExecutable(
 );
 Config.setVideoImageFormat('png');
 Config.setOverwriteOutput(true);
-Config.setChromiumOpenGlRenderer('swangle');
+Config.setChromiumOpenGlRenderer('swiftshader'); // swangle drops 512 px raster tiles on these frames
