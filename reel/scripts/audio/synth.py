@@ -32,7 +32,7 @@ from dsp import (AUDIO_BUILD, REEL, SR, TAU, Bus, Config, a2db, ar, band, butter
 
 TARGET_LUFS = -18.0
 CEILING_DBTP = -1.0
-AAC_HEADROOM_DB = 0.5  # the AAC encode in the render adds a few tenths of a dB of true peak
+AAC_HEADROOM_DB = 1.5  # the AAC encode adds up to ~1 dB of true peak on the strike's dense transient
 
 # Where the three bots stand (brief section 5: centre x on the 1080 canvas) as
 # stereo positions, and who gets hit by what (storyboard).

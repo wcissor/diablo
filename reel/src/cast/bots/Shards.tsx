@@ -24,6 +24,13 @@ const INNER_SHADE = mix(C.porcelainShade, C.night, 0.12);
 
 type XY = { x: number; y: number };
 
+// Shards slide outward but ease to a stop before these x limits (stage px),
+// so even at the tightest push they stay in the core area.
+const X_MIN = 176;
+const X_MAX = 878;
+const softLimit = (x: number, lo: number, hi: number, k = 14) =>
+  x > hi ? hi + k * (1 - Math.exp(-(x - hi) / k)) : x < lo ? lo - k * (1 - Math.exp(-(lo - x) / k)) : x;
+
 // Clip a polygon to the half-plane n·p ≥ d (Sutherland–Hodgman).
 const clipHalf = (pts: XY[], nx: number, ny: number, d: number): XY[] => {
   const out: XY[] = [];
@@ -163,7 +170,9 @@ export const Shards: React.FC<{ kind: BotKind; impacts: Pt[]; t: number; seed: s
     const rest = STAGE_Y - low;
     const contact = smooth(clamp((t - f.t1) / 4));
     const cy = Math.min(rest, contact * (rest - (F0 - f.y)) + (1 - contact) * f.y);
-    const cx = f.x;
+    // ...and they come to rest inside the safe area, never in the right rail
+    // (where the app's buttons sit) or past the left edge of the core area.
+    const cx = softLimit(f.x, X_MIN, X_MAX);
     const W = world.map((p) => ({ x: p.x + cx, y: p.y + cy }));
     const d = pd(W);
     const glazed = sxRaw > 0 || settle > 0.5;
