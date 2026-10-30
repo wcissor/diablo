@@ -236,9 +236,17 @@ export const curveAt = (c: { pts: Pt[]; cum: number[] }, s: number): { p: Pt; an
 const f1 = (n: number) => (Math.round(n * 10) / 10).toString();
 
 // The outline of a band of varying half-width hw(s) along a sampled curve,
-// from arc length l0 to l1, with round ends: how cracks and seams get their
-// slight swell and taper (a stroke cannot vary its width).
-export const ribbonD = (c: { pts: Pt[]; cum: number[] }, l0: number, l1: number, hw: (s: number) => number, step = 3): string => {
+// from arc length l0 to l1: how cracks and seams get their slight swell and
+// taper (a stroke cannot vary its width). Round ends by default; 'butt' ends
+// stop square, so a band whose width runs to 0 there ends in a sharp point.
+export const ribbonD = (
+  c: { pts: Pt[]; cum: number[] },
+  l0: number,
+  l1: number,
+  hw: (s: number) => number,
+  step = 3,
+  caps: { start?: 'round' | 'butt'; end?: 'round' | 'butt' } = {},
+): string => {
   const L = c.cum[c.cum.length - 1];
   const a = Math.max(0, Math.min(L, l0));
   const b = Math.max(0, Math.min(L, l1));
@@ -258,7 +266,7 @@ export const ribbonD = (c: { pts: Pt[]; cum: number[] }, l0: number, l1: number,
     const t = { x: (q1.x - q0.x) / tl, y: (q1.y - q0.y) / tl };
     if (i === 0) tStart = t;
     tEnd = t;
-    const w = Math.max(0.05, hw(s));
+    const w = Math.max(0.02, hw(s));
     left.push(`${f1(p.x - t.y * w)} ${f1(p.y + t.x * w)}`);
     right.push(`${f1(p.x + t.y * w)} ${f1(p.y - t.x * w)}`);
     return { p, w };
@@ -276,10 +284,11 @@ export const ribbonD = (c: { pts: Pt[]; cum: number[] }, l0: number, l1: number,
   };
   const e = P[P.length - 1];
   const s0 = P[0];
-  const capE = cap(e.p, tEnd, e.w, 1);
+  const capE = caps.end === 'butt' ? [] : cap(e.p, tEnd, e.w, 1);
   // the start cap runs from the right side round the back to the left side
-  const capS = cap(s0.p, { x: -tStart.x, y: -tStart.y }, s0.w, 1);
-  return `M${left.join('L')}L${capE.join('L')}L${right.reverse().join('L')}L${capS.join('L')}Z`;
+  const capS = caps.start === 'butt' ? [] : cap(s0.p, { x: -tStart.x, y: -tStart.y }, s0.w, 1);
+  const seg = (pts: string[]) => (pts.length ? `L${pts.join('L')}` : '');
+  return `M${left.join('L')}${seg(capE)}L${right.reverse().join('L')}${seg(capS)}Z`;
 };
 
 // A slow seeded swell along a curve, −1..1 (for the width of cracks and seams).

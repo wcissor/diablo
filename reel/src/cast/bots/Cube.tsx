@@ -10,6 +10,7 @@ import { CUBE, antennaTip } from './shapes';
 import { polyD, shift } from './geom';
 import { CrackDefs } from './CrackLayer';
 import type { Resolved } from './pose';
+import { closedOf } from './Eye';
 
 const SIL_D = polyD(CUBE.silhouette);
 const TOP_D = polyD(CUBE.topFace);
@@ -120,12 +121,32 @@ const CubeEyes: React.FC<{ id: string; r: Resolved; face: { x: number; y: number
   const dx = face.x + r.look.x * 10;
   const dy = face.y + r.look.y * 9;
   const col = mix(C.porcelain, C.cream, r.bright);
+  // Shut, each eye is a closed-lid line: a gently curved stroke in the eye's
+  // own light (the screen is night), where the squashed eye was.
+  const shut = closedOf(r.blink);
   return (
     <g clipPath={`url(#${id}-screenclip)`}>
       {CUBE.eyes.map((e, i) => {
         const cx = e.x + dx;
         const cy = e.y + dy + (s * 0.86 * r.blink) / 2 - r.fear * 3;
-        return <rect key={i} x={cx - w / 2} y={cy - h / 2} width={w} height={h} rx={Math.min(4, h / 2)} fill={col} />;
+        const y0 = e.y + dy + s * 0.4 - r.fear * 3;
+        const hw = w * 0.46;
+        const sag = 3.2;
+        return (
+          <g key={i}>
+            {shut < 0.99 ? <rect x={cx - w / 2} y={cy - h / 2} width={w} height={h} rx={Math.min(4, h / 2)} fill={col} opacity={Math.min(1, (1 - shut) * 2)} /> : null}
+            {shut > 0.01 ? (
+              <path
+                d={`M${(cx - hw).toFixed(2)} ${(y0 - sag / 2).toFixed(2)}Q${cx.toFixed(2)} ${(y0 + sag * 1.5).toFixed(2)} ${(cx + hw).toFixed(2)} ${(y0 - sag / 2).toFixed(2)}`}
+                fill="none"
+                stroke={col}
+                strokeWidth={2.2 + 1.4 * shut}
+                strokeLinecap="round"
+                opacity={shut}
+              />
+            ) : null}
+          </g>
+        );
       })}
     </g>
   );

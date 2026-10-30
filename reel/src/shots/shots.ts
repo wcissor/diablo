@@ -375,7 +375,7 @@ const traceTarget = (f: number) =>
 // stroke), so the whole hand stays inside the safe area — it is touching a
 // bot — and clear of his eyes all the way along. Found by a search over the
 // traced crack with the layout checker's rules; re-check if the cracks change.
-const TRACE_ROLL: [number, number, number] = [-6, 2, 14];
+const TRACE_ROLL: [number, number, number] = [-6, -2, 14];
 const traceRot = (u: number) =>
   u < 0.5 ? lerp(TRACE_ROLL[0], TRACE_ROLL[1], u / 0.5) : lerp(TRACE_ROLL[1], TRACE_ROLL[2], (u - 0.5) / 0.5);
 const traceHand = (f: number): HandProps | undefined => {
@@ -389,7 +389,7 @@ const traceHand = (f: number): HandProps | undefined => {
   return {
     ...base,
     x: p.x - tip0.x - away * 560,
-    y: p.y - tip0.y - lift * 26,
+    y: p.y - tip0.y - lift * 22,
     rot: rot + away * 8,
     warm: clamp(1 - emberLevel(f)) * 0.6,
     ember: emberLevel(f),
@@ -437,7 +437,7 @@ const flickHand = (f: number): HandProps => {
   const tremble = 1.2;
   const onShell = (k: BotKind, p: Pt) => botPoint(k, p, learnBotPose(f, k), f);
   if (k1 > 0 && k1 < 1) return { ...hover, ...visit(k1, onShell('orb', h.orb.cracks[0].points[0]), -24), tremble, warm: 0.5 };
-  if (k2 > 0 && k2 < 1) return { ...hover, ...visit(k2, onShell('cube', h.cube.cracks[0].points[0]), 24), tremble, warm: 0.5 };
+  if (k2 > 0 && k2 < 1) return { ...hover, ...visit(k2, onShell('cube', h.cube.cracks[0].points[0]), 20), tremble, warm: 0.5 };
   // up from behind the orb before each flick, down again after
   const up1 = easeOutCubic(invLerp(c1.at - 6, c1.flick - 5, f)) * (1 - easeInCubic(invLerp(c1.flick + c1.sealFrames + 6, c1.flick + 22, f)));
   const up2 = easeOutCubic(invLerp(c2.at - 12, c2.at - 3, f)) * (1 - easeInCubic(invLerp(c2.at + c2.sealFrames + 4, EVENTS.eyesNarrow + 2, f)));

@@ -3,8 +3,12 @@
 // the layer is shifted by −anchor to sit in the bot's local space.
 //
 // Cracks and seams share one smooth path per crack (Crack.d). Both are drawn
-// as bands along it whose width swells and tapers a little (seeded), so they
-// read as organic breaks and kintsugi, never as traces on a circuit board.
+// as bands along it whose width swells a little (seeded), so they read as
+// organic breaks and kintsugi, never as traces on a circuit board. An open
+// crack narrows to a sharp point at its free end; a seam sits on a crisp
+// warm-dark contact contour (so the gold separates from the porcelain) and
+// thins out at a free tip. Each layer is drawn for all cracks before the next,
+// so a fork never cuts across its parent.
 
 import React from 'react';
 import { BOTS, type BotKind } from '../../geometry';
@@ -12,7 +16,7 @@ import { C } from '../../theme';
 import { mix } from '../../stage/Stage';
 import { clamp, smooth, type Pt } from '../../lib/anim';
 import type { CrackState } from '../types';
-import { crackAt, crackCurve, crackRootDist, isHairline, setImpacts, setReach, weakAngle, weakLinks, weakPts } from './cracks';
+import { crackAt, crackCurve, crackRootDist, crackTip, isHairline, setImpacts, setReach, weakAngle, weakLinks, weakPts } from './cracks';
 import { bboxOf, polyD, ribbonD, smoothClosedD, swell } from './geom';
 import { shellLocal, toStage } from './shapes';
 
@@ -20,8 +24,16 @@ import { shellLocal, toStage } from './shapes';
 const EMBER_DEEP = mix(C.ember, C.maroon, 0.5); // the scorched band round an opening, its inner wall
 const EMBER_HOT = mix(C.ember, C.gold, 0.5); // the hot core deep inside
 const EMBER_HEART = mix(C.gold, C.cream, 0.4); // the very heart of the core
-const GOLD_DEEP = mix(C.gold, C.maroon, 0.3); // the lower edge of a raised gold patch
+const GOLD_DEEP = mix(C.gold, C.maroon, 0.3); // the sparkle's rim
 const GOLD_HOT = mix(C.gold, C.cream, 0.55);
+const SEAM_SHADOW = mix(C.night, C.maroon, 0.4); // the warm-dark contact contour under every seam and patch
+const SEAM_SHADOW_O = 0.55;
+const PATCH_EDGE = mix(C.gold, C.maroon, 0.55); // the thin contour round a sealed patch
+
+// The embers inside an opening glow dim from the moment it opens (never a black
+// hole first), and come up to full as the weak spots light.
+const EMBER_FLOOR = 0.5;
+const RING_FLOOR = 0.22;
 
 const PULSE_W = (2 * Math.PI * 1.2) / 30; // 1.2 Hz at 30 fps
 // The ember pulse as a multiplier (0.24 … 1): strong, so the light visibly breathes.
@@ -79,7 +91,7 @@ const placed = (pts: XY[], cx: number, cy: number, r: number, push: (i: number) 
       return { x: cx + p.x * r + (p.x / l) * o, y: cy + p.y * r + (p.y / l) * o };
     }),
   );
-// The same, as a smooth outline with its lobes calmed (molten gold has no
+// An outline's lobes calmed toward their neighbours (molten gold has no
 // chipped corners).
 const calm = (pts: XY[]): XY[] =>
   pts.map((p, i) => {
@@ -89,30 +101,70 @@ const calm = (pts: XY[]): XY[] =>
     const m = 0.7 * l + 0.15 * (Math.hypot(a.x, a.y) + Math.hypot(b.x, b.y));
     return { x: (p.x / l) * m, y: (p.y / l) * m };
   });
-const pooled = (pts: XY[], cx: number, cy: number, r: number) => smoothClosedD(calm(pts).map((p) => ({ x: cx + p.x * r, y: cy + p.y * r })));
 // A chipped edge: each vertex its own amount between lo and hi.
 const chipped = (lo: number, hi: number, seed = 0) => (i: number) => lo + (hi - lo) * ((((i + seed) * 7) % 5) / 4);
 
 // The opening, a little longer along the crack it breaks.
-const orient = (pts: XY[], angle: number): XY[] => {
+const orient = (pts: XY[], angle: number, along = 1.15, across = 0.92): XY[] => {
   const c = Math.cos(angle);
   const s = Math.sin(angle);
-  return pts.map((p) => ({ x: p.x * 1.15 * c - p.y * 0.92 * s, y: p.x * 1.15 * s + p.y * 0.92 * c }));
+  return pts.map((p) => ({ x: p.x * along * c - p.y * across * s, y: p.x * along * s + p.y * across * c }));
+};
+// A sealed patch: a calm, flat, slightly irregular pool of gold, like a filled
+// chip (its lobes smoothed, so it reads as poured gold, never as a nugget, a
+// bead or a leaf).
+const poolPts = (pts: XY[]) => {
+  const a = calm(pts);
+  const b = calm(a);
+  return a.map((p, i) => ({ x: (p.x + b[i].x) / 2, y: (p.y + b[i].y) / 2 }));
+};
+const patchD = (pts: XY[], cx: number, cy: number, r: number) => smoothClosedD(poolPts(pts).map((p) => ({ x: cx + p.x * r, y: cy + p.y * r })));
+// Its one highlight: a short sliver of light just inside the edge that faces
+// the key light (up and to the left), like the rim of a flat inlay, kept off
+// the seam running through it (`along`: the seam's heading).
+const KEY_DIR = { x: -0.55, y: -0.83 };
+const patchGlintD = (pts: XY[], cx: number, cy: number, r: number, inset: number, along: number) => {
+  const q = poolPts(pts);
+  const n = q.length;
+  const ax = Math.cos(along);
+  const ay = Math.sin(along);
+  let bi = 0;
+  let bd = -Infinity;
+  q.forEach((p, i) => {
+    const l = Math.hypot(p.x, p.y) || 1;
+    const d = (p.x * KEY_DIR.x + p.y * KEY_DIR.y) / l - 1.5 * Math.max(0, Math.abs((p.x * ax + p.y * ay) / l) - 0.55);
+    if (d > bd) {
+      bd = d;
+      bi = i;
+    }
+  });
+  const at = (i: number) => {
+    const p = q[(i + n) % n];
+    const l = Math.hypot(p.x, p.y) || 1;
+    const k = Math.max(0.2, (l * r - inset) / (l * r));
+    return { x: cx + p.x * r * k, y: cy + p.y * r * k };
+  };
+  const a = at(bi - 1);
+  const b = at(bi);
+  const c = at(bi + 1);
+  // through the middle point (a quadratic whose control makes it pass through b)
+  return `M${f2(a.x)} ${f2(a.y)}Q${f2(2 * b.x - (a.x + c.x) / 2)} ${f2(2 * b.y - (a.y + c.y) / 2)} ${f2(c.x)} ${f2(c.y)}`;
 };
 
-// A claw puncture: a small chipped gash, wide where the tip broke in, tailing
-// off downward (unit size). Sealed, it is a drop of gold.
+// A claw puncture: a narrow chipped gash, pointed at both ends, widest a
+// little above its middle where the tip broke in (unit size; never a round
+// dot). Sealed, the gold poured in there closes it.
 const PUNCTURE: XY[] = [
-  { x: -0.1, y: -0.95 },
-  { x: 0.3, y: -0.86 },
-  { x: 0.5, y: -0.45 },
-  { x: 0.4, y: 0.12 },
-  { x: 0.17, y: 0.6 },
-  { x: 0.03, y: 1.05 },
-  { x: -0.17, y: 0.55 },
-  { x: -0.38, y: 0.02 },
-  { x: -0.5, y: -0.5 },
-  { x: -0.38, y: -0.84 },
+  { x: 0.02, y: -1.0 },
+  { x: 0.2, y: -0.62 },
+  { x: 0.3, y: -0.2 },
+  { x: 0.2, y: 0.3 },
+  { x: 0.08, y: 0.75 },
+  { x: 0.0, y: 1.05 },
+  { x: -0.1, y: 0.6 },
+  { x: -0.22, y: 0.1 },
+  { x: -0.28, y: -0.35 },
+  { x: -0.15, y: -0.75 },
 ];
 const rotPts = (pts: XY[], deg: number): XY[] => {
   const c = Math.cos((deg * Math.PI) / 180);
@@ -158,10 +210,15 @@ export const CrackLayer: React.FC<{ kind: BotKind; id: string; states: CrackStat
   }
 
   const lights: React.ReactNode[] = [];
-  const lines: React.ReactNode[] = [];
+  const edges: React.ReactNode[] = []; // open cracks: porcelain-shade walls
+  const cores: React.ReactNode[] = []; // open cracks: night cores, ember threads
   const holes: React.ReactNode[] = [];
+  const shadows: React.ReactNode[] = []; // the contact contour under seams and patches (one opacity for all)
+  const patchRims: React.ReactNode[] = [];
   const seams: React.ReactNode[] = [];
+  const seamCores: React.ReactNode[] = [];
   const golds: React.ReactNode[] = [];
+  const patchLights: React.ReactNode[] = [];
   const fronts: React.ReactNode[] = [];
   const sparks: React.ReactNode[] = [];
 
@@ -190,23 +247,33 @@ export const CrackLayer: React.FC<{ kind: BotKind; id: string; states: CrackStat
       const len = Math.min(seal * L, vis);
       const main = !hair && (cr as { main?: boolean }).main !== false;
       const sd = i * 3.7 + si * 11;
+      const tip = crackTip(cr);
 
-      // The open crack, where the gold has not reached: porcelain-shade edges
-      // round a night core, heavier at the root and tapering out, with a
-      // thread of ember while the weak spots glow.
+      // The open crack, where the gold has not reached: porcelain-shade walls
+      // round a night core, heavier at the root, narrowing to a sharp point at
+      // its free end (the growing end is always free; one that runs into
+      // another crack or the shell's edge keeps its width there), with a thread
+      // of ember while the weak spots glow.
       if (vis - len > 0.3) {
-        const edge = (x: number) => (hair ? 1.8 : main ? 3.8 : 3.1) * (1 - (hair ? 0.3 : 0.4) * (x / Lc)) * (1 + 0.14 * swell(sd, x));
-        const core = (x: number) => (hair ? 0.8 : main ? 1.75 : 1.4) * (1 - 0.34 * (x / Lc)) * (1 + 0.16 * swell(sd + 1.3, x));
-        // the open part only (a dash offset, never a zero-length dash: Skia chokes on those when zoomed)
-        const open = { strokeDasharray: `${f2(vis - len)} ${f2(L + 80)}`, strokeDashoffset: f2(-len) };
-        lines.push(
+        const a0 = len * k;
+        const a1 = vis * k;
+        const span = a1 - a0;
+        const reached = vis >= L - 0.5;
+        const T = Math.min(hair ? 12 : main ? 20 : 16, span * 0.55) * (reached && tip !== 'free' ? 0 : 1);
+        const taper = (x: number) => (T > 0.5 ? Math.pow(clamp((a1 - x) / T), 0.85) : 1);
+        // a fork starts thin off its parent
+        const forkIn = (x: number) => (main || hair ? 1 : 0.55 + 0.45 * smooth(clamp(x / 14)));
+        const edge = (x: number) => (hair ? 1.8 : main ? 3.8 : 3.1) * (1 - (hair ? 0.3 : 0.4) * (x / Lc)) * (1 + 0.1 * swell(sd, x)) * taper(x) * forkIn(x);
+        const core = (x: number) => (hair ? 0.8 : main ? 1.75 : 1.4) * (1 - 0.34 * (x / Lc)) * (1 + 0.12 * swell(sd + 1.3, x)) * Math.pow(taper(x), 1.3) * forkIn(x);
+        const caps = { start: len > 0.3 ? ('butt' as const) : ('round' as const), end: T > 0.5 ? ('butt' as const) : ('round' as const) };
+        edges.push(<path key={key} d={ribbonD(curve, a0, a1, edge, 2.5, caps)} fill={C.porcelainShade} />);
+        cores.push(
           <g key={key}>
-            <path d={ribbonD(curve, len * k, vis * k, edge)} fill={C.porcelainShade} />
-            <path d={ribbonD(curve, len * k, vis * k, core)} fill={C.night} />
+            <path d={ribbonD(curve, a0, a1, core, 2.5, caps)} fill={C.night} />
             {!hair && weak > 0.01 ? (
-              <path d={cr.d} fill="none" stroke={C.ember} strokeOpacity={weak * (0.3 + 0.3 * pn)} strokeWidth={0.9} strokeLinecap="round" {...open} />
+              <path d={ribbonD(curve, a0, a1, (x) => 0.45 * core(x) / 1.75, 2.5, { start: 'butt', end: 'butt' })} fill={C.ember} opacity={weak * (0.3 + 0.3 * pn)} />
             ) : null}
-            {flash > 0.01 ? <path d={cr.d} fill="none" stroke={C.ember} strokeOpacity={flash} strokeWidth={2.6} strokeLinecap="round" {...open} /> : null}
+            {flash > 0.01 ? <path d={ribbonD(curve, a0, a1, (x) => 1.3 * Math.pow(taper(x), 1.2), 2.5, caps)} fill={C.ember} opacity={flash} /> : null}
           </g>,
         );
       }
@@ -222,17 +289,21 @@ export const CrackLayer: React.FC<{ kind: BotKind; id: string; states: CrackStat
       }
 
       // The gold seam flowing in from the root: 6 px gold (swelling a little)
-      // with a 2 px cream core, raised on a soft night shadow.
+      // with a 2 px cream core, on a crisp warm-dark contact contour offset down
+      // and right. At a free tip the gold thins out and the core runs to a point.
       if (len > 0.3) {
-        const pour = main && crackRootDist(cr) === 0 ? 1.3 : 0; // a drop where the gold was poured in
-        const goldW = (x: number) => 3.05 * (1 + 0.11 * swell(sd + 2.6, x)) + pour * Math.max(0, 1 - x / 9) ** 2;
-        const dash = `${f2(len)} ${f2(L + 80)}`;
-        seams.push(
-          <g key={`seam-${key}`}>
-            <path d={cr.d} transform="translate(1.1 1.8)" fill="none" stroke={C.night} strokeOpacity={0.28} strokeWidth={6.5} strokeLinecap="round" strokeDasharray={dash} />
-            <path d={ribbonD(curve, 0, len * k, goldW)} fill={C.gold} />
-            <path d={cr.d} fill="none" stroke={C.cream} strokeWidth={2} strokeLinecap="round" strokeDasharray={dash} />
-          </g>,
+        const end = Lc; // the crack's own end, in sample length
+        const freeTip = tip === 'free';
+        const pour = main && crackRootDist(cr) === 0 ? 0.9 : 0; // a small drop where the gold was poured in
+        const thin = (x: number) => (freeTip ? 0.3 + 0.7 * smooth(clamp((end - x) / 18)) : 1);
+        const goldW = (x: number) => (3 * (1 + 0.07 * swell(sd + 2.6, x)) + pour * Math.max(0, 1 - x / 8) ** 2) * thin(x);
+        const coreW = (x: number) => (freeTip ? Math.pow(clamp((end - 2.5 - x) / 16), 0.8) : 1) * Math.min(1, 0.35 + x / 6);
+        const l1 = len * k;
+        const atTip = len >= L - 0.5;
+        shadows.push(<path key={`sh-${key}`} d={ribbonD(curve, 0, l1, (x) => goldW(x) + 2.4, 2.5)} transform="translate(0.5 0.7)" />);
+        seams.push(<path key={`seam-${key}`} d={ribbonD(curve, 0, l1, goldW, 2.5)} fill={C.gold} />);
+        seamCores.push(
+          <path key={`core-${key}`} d={ribbonD(curve, 0, Math.min(l1, end - (freeTip ? 2.5 : 0)), coreW, 2.5, { end: freeTip && atTip ? 'butt' : 'round' })} fill={C.cream} transform="translate(-0.4 -0.7)" />,
         );
         // The molten front: a bright bead of gold with a hot cream core, and
         // a small warm light round it.
@@ -308,7 +379,7 @@ export const CrackLayer: React.FC<{ kind: BotKind; id: string; states: CrackStat
         if (hole > 0.01) {
           holes.push(
             <g key={`chip-${si}-${ii}`} opacity={hole}>
-              <path d={placed(shape, p.x + 0.5, p.y + 1, r, chipped(1.2, 2.4, ii))} fill={C.porcelainShade} />
+              <path d={placed(shape, p.x + 0.4, p.y + 0.8, r, chipped(0.9, 1.8, ii))} fill={C.porcelainShade} />
               <path d={placed(shape, p.x, p.y, r)} fill={C.night} />
             </g>,
           );
@@ -317,48 +388,62 @@ export const CrackLayer: React.FC<{ kind: BotKind; id: string; states: CrackStat
     }
 
     // Weak spots: irregular openings with a crisp night rim, the ember glowing
-    // up from inside, a hot ring of lit glaze round them and a tight red light
-    // on the shell — all pulsing at 1.2 Hz. Once sealed: a raised gold patch.
+    // up from inside (dim from the moment it opens, full once the weak spots
+    // light), a hot ring of lit glaze round them and a tight red light on the
+    // shell — all pulsing at 1.2 Hz. Once sealed: a calm, flat pool of gold.
     set.weakSpots.forEach((w, wi) => {
       const links = weakLinks(set, wi);
       // It opens when the crack front reaches it.
       const at = links.reduce((m, l) => Math.min(m, crackRootDist(set.cracks[l.i] ?? set.cracks[0]) + l.t * (set.cracks[l.i]?.length ?? 0)), Infinity);
       const open = smooth(clamp((front - at) / 14));
       if (open <= 0.01) return;
+      // Full once the seal front is 18 px past it (or at its crack's end, if nearer).
       const fill = links.reduce((m, l) => {
         const cr = set.cracks[l.i];
         if (!cr) return m;
-        return Math.max(m, clamp(((clamp(s.seal[l.i] ?? 0) - l.t) * cr.length) / 18));
+        const room = Math.max(2, Math.min(18, (1 - l.t) * cr.length));
+        return Math.max(m, clamp(((clamp(s.seal[l.i] ?? 0) - l.t) * cr.length) / room));
       }, 0);
       const pts = orient(weakPts(set, wi), weakAngle(set, wi));
       const r = w.r * (0.55 + 0.45 * open);
       const key = `${si}-w${wi}`;
       // Each spot's ember goes out as its own gold fills.
-      const glow = weak * (1 - smooth(fill)) * open;
+      const live = (1 - smooth(fill)) * open;
+      const glow = weak * live;
+      const ember = Math.max(weak, EMBER_FLOOR) * live;
+      const ringG = Math.max(weak, RING_FLOOR) * live;
       if (glow > 0.01) {
         lights.push(<circle key={`l-${key}`} cx={w.x} cy={w.y} r={r * (2.05 + 0.5 * pn)} fill={`url(#${id}-ember-light)`} opacity={glow * (0.72 + 0.28 * pn)} />);
-        const ring = 4 + 4.5 * pn;
+      }
+      if (ringG > 0.01) {
+        const ring = (4 + 4.5 * pn) * (0.6 + 0.4 * clamp(weak / Math.max(0.01, ringG)));
         holes.push(
           <g key={`ring-${key}`}>
-            <path d={placed(pts, w.x, w.y, r, chipped(ring + 2.5, ring * 1.3 + 3.5, wi + 1))} fill={EMBER_DEEP} opacity={glow * 0.6} />
-            <path d={placed(pts, w.x, w.y, r, chipped(ring * 0.7, ring * 1.2, wi + 3))} fill={C.ember} opacity={glow * (0.85 + 0.15 * pn)} />
+            <path d={placed(pts, w.x, w.y, r, chipped(ring + 2.5, ring * 1.3 + 3.5, wi + 1))} fill={EMBER_DEEP} opacity={ringG * 0.6} />
+            <path d={placed(pts, w.x, w.y, r, chipped(ring * 0.7, ring * 1.2, wi + 3))} fill={C.ember} opacity={ringG * (0.85 + 0.15 * pn)} />
           </g>,
         );
       }
       holes.push(
         <g key={key} opacity={1 - smooth(clamp(fill * 1.3))}>
           <path d={placed(pts, w.x, w.y, r, chipped(1.6, 2.8, wi))} fill={C.night} />
-          {glow > 0.01 ? (
-            <g opacity={clamp(glow * (0.78 + 0.22 * pn))}>
+          {ember > 0.01 ? (
+            <g opacity={clamp(ember * (0.78 + 0.22 * pn))}>
               <path d={placed(pts, w.x, w.y + r * 0.06, r * 0.9)} fill={`url(#${id}-ember-core)`} />
-              <path d={placed(pts, w.x, w.y + r * 0.2, r * (0.26 + 0.12 * pn))} fill={EMBER_HEART} opacity={0.55 + 0.45 * pn} />
+              <path d={placed(pts, w.x, w.y + r * 0.2, r * (0.26 + 0.12 * pn))} fill={EMBER_HEART} opacity={(0.55 + 0.45 * pn) * clamp(weak * 1.5)} />
             </g>
           ) : null}
         </g>,
       );
       if (fill > 0.01) {
+        // A flat pool of gold about 70 % of the opening, drawn out a little
+        // along its seam: one calm fill with a thin dark contour on the same
+        // contact contour as the seams; the seams' cream cores run on through
+        // it (so it reads as the seam widening into an inlay, not a bead on a
+        // string), and one small highlight.
         const gf = smooth(fill);
-        const sc = (r + 3.2) * (0.4 + 0.6 * gf);
+        const sc = (r + 3.2) * 0.7 * (0.45 + 0.55 * gf);
+        const pp = orient(weakPts(set, wi), weakAngle(set, wi), 1.06, 0.94);
         let shine = 0;
         if (glinting) {
           for (const l of links) {
@@ -368,24 +453,31 @@ export const CrackLayer: React.FC<{ kind: BotKind; id: string; states: CrackStat
             shine = Math.max(shine, 1 - Math.abs(c - l.t * cr.length) / (GLINT_HALF * 1.6));
           }
         }
+        const o = clamp(fill * 3);
+        shadows.push(<path key={`psh-${key}`} d={patchD(pp, w.x + 1, w.y + 1.1, sc + 0.8)} fillOpacity={SEAM_SHADOW_O * o} />);
+        patchRims.push(<path key={`pr-${key}`} d={patchD(pp, w.x, w.y, sc + 0.9)} fill={PATCH_EDGE} opacity={o} />);
         golds.push(
           <g key={`g-${key}`}>
-            {gf < 0.999 ? <circle cx={w.x} cy={w.y} r={sc * 2.2} fill={`url(#${id}-molten)`} opacity={1 - gf} /> : null}
-            <g opacity={clamp(fill * 3)}>
-              <path d={pooled(pts, w.x + 1.2, w.y + 2, sc)} fill={C.night} opacity={0.3} />
-              <path d={pooled(pts, w.x, w.y, sc)} fill={GOLD_DEEP} />
-              <path d={pooled(pts, w.x - 0.7, w.y - 1.1, sc * 0.88)} fill={C.gold} />
-              <path d={pooled(pts, w.x - sc * 0.24, w.y - sc * 0.3, sc * 0.42)} fill={GOLD_HOT} />
-              <path d={pooled(pts, w.x - sc * 0.3, w.y - sc * 0.36, sc * 0.18)} fill={C.cream} />
-            </g>
+            {gf < 0.999 ? <circle cx={w.x} cy={w.y} r={sc * 2.4} fill={`url(#${id}-molten)`} opacity={1 - gf} /> : null}
+            <path d={patchD(pp, w.x, w.y, sc)} fill={C.gold} opacity={o} />
             {shine > 0.01 ? (
               <g opacity={shine}>
                 <circle cx={w.x} cy={w.y} r={sc * 1.8} fill={`url(#${id}-molten)`} />
-                <path d={pooled(pts, w.x - sc * 0.18, w.y - sc * 0.22, sc * 0.62)} fill={GOLD_HOT} />
-                <path d={pooled(pts, w.x - sc * 0.26, w.y - sc * 0.3, sc * 0.3)} fill={C.cream} />
+                <path d={patchD(pp, w.x - sc * 0.06, w.y - sc * 0.08, sc * 0.74)} fill={GOLD_HOT} />
               </g>
             ) : null}
           </g>,
+        );
+        patchLights.push(
+          <path
+            key={`pl-${key}`}
+            d={patchGlintD(pp, w.x, w.y, sc, 2.6, weakAngle(set, wi))}
+            fill="none"
+            stroke={C.cream}
+            strokeWidth={1.6 + 0.8 * shine}
+            strokeLinecap="round"
+            opacity={o * (0.85 + 0.15 * shine)}
+          />,
         );
       }
     });
@@ -394,10 +486,21 @@ export const CrackLayer: React.FC<{ kind: BotKind; id: string; states: CrackStat
   return (
     <g transform={`translate(${-a.cx} ${-a.feetY})`}>
       {lights}
-      {lines}
+      {edges}
+      {cores}
       {holes}
+      {/* fill-opacity per path, not a group opacity (an offscreen group here
+          makes the renderer drop whole tiles) */}
+      {shadows.length ? (
+        <g fill={SEAM_SHADOW} fillOpacity={SEAM_SHADOW_O}>
+          {shadows}
+        </g>
+      ) : null}
+      {patchRims}
       {seams}
       {golds}
+      {seamCores}
+      {patchLights}
       {fronts}
       {sparks}
     </g>

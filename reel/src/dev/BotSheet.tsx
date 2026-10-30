@@ -11,9 +11,9 @@ import { clamp } from '../lib/anim';
 // Dev sheet for the bots, by frame:
 //   0–99   idle at their real positions (bubble blinks at 20, tail wiggle 10–34)
 //   100    cowering: fear, looking up-left, squashed, leaning away
-//   150    cracked (8 cracks each): weak spots glowing, shards thrown off
+//   150    cracked (6 cracks each, as in the reel): weak spots glowing, shards thrown off
 //   200    half sealed: the gold front part-way along, molten beads, a pop
-//   250    fully sealed: organic seams, gold patches, warm glow
+//   250    fully sealed: calm seams, flat gold patches, warm glow
 //   300    silhouettes on cream (the impact flash)
 //   350    a fresh hairline flashing on the orb and the cube
 //   400    cracked, at the tightest push-in (1.0815×) with the safe area drawn
@@ -40,9 +40,9 @@ export const SHEET_IMPACTS: Record<BotKind, Pt[]> = {
 };
 
 const SETS: Record<BotKind, CrackSet> = {
-  bubble: makeCracks('bubble', SHEET_IMPACTS.bubble, 'sheet', 8),
-  cube: makeCracks('cube', SHEET_IMPACTS.cube, 'sheet', 8),
-  orb: makeCracks('orb', SHEET_IMPACTS.orb, 'sheet', 8),
+  bubble: makeCracks('bubble', SHEET_IMPACTS.bubble, 'sheet', 6),
+  cube: makeCracks('cube', SHEET_IMPACTS.cube, 'sheet', 6),
+  orb: makeCracks('orb', SHEET_IMPACTS.orb, 'sheet', 6),
 };
 
 const HAIR: Partial<Record<BotKind, CrackSet>> = {

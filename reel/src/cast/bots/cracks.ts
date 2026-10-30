@@ -16,7 +16,11 @@ export interface BotCrack extends Crack {
   parentT: number; // 0..1 where along its parent (by length) a fork leaves it (0 for a main)
   dense: Pt[]; // samples ≈ 1 px apart along d (root first)
   cum: number[]; // arc length at each sample
+  tip: CrackTip; // how its far end finishes
 }
+// A crack's far end: a free point on the shell (drawn tapering to nothing),
+// where it runs into another crack (a T-junction), or at the shell's edge.
+export type CrackTip = 'free' | 'join' | 'edge';
 export interface WeakLink {
   i: number; // crack index
   t: number; // 0..1 where along that crack the weak spot sits (0 = its root)
@@ -154,6 +158,30 @@ const crossAt = (a: Pt, b: Pt, c: Pt, d: Pt): number | null => {
 };
 
 const MAX_SWING = 74 * DEG; // a crack never bends more than this off its first heading
+// Cracks keep at least this far apart once clear of their own root (no bundles
+// of near-parallel cracks): one that would come closer turns away, or meets
+// the other crack in a T-junction.
+const CRACK_SEP = 17;
+const SEP_CLEAR = 24; // px from its own root before the rule applies
+
+// The nearest point on any of the polylines to p.
+const nearestOn = (p: Pt, polys: Pt[][]): { d: number; q: Pt } => {
+  let best = { d: Infinity, q: p };
+  for (const poly of polys) {
+    for (let i = 1; i < poly.length; i++) {
+      const a = poly[i - 1];
+      const b = poly[i];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const l2 = dx * dx + dy * dy;
+      const t = l2 === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2));
+      const q = { x: a.x + t * dx, y: a.y + t * dy };
+      const d = Math.hypot(p.x - q.x, p.y - q.y);
+      if (d < best.d) best = { d, q };
+    }
+  }
+  return best;
+};
 
 const walk = (kind: BotKind, start: Pt, heading: number, maxLen: number, R: () => number, o: WalkOpts, others: Pt[][] = []): Pt[] => {
   const pts: Pt[] = [start];
@@ -170,12 +198,13 @@ const walk = (kind: BotKind, start: Pt, heading: number, maxLen: number, R: () =
     if (step < 2) break;
     h += (R() + R() - 1) * o.jitter * DEG + (heading - h) * o.pull;
     if (pts.length > 1 && R() < o.kink) {
-      const kick = (R() < 0.5 ? -1 : 1) * (16 + R() * 20) * DEG;
+      const kick = (R() < 0.5 ? -1 : 1) * (12 + R() * 14) * DEG;
       h += kick;
       heading = clampH(heading + kick * 0.5);
     }
     h = clampH(h);
     let placed = false;
+    let crowded: Pt | null = null; // where it would meet a crack it came too close to
     for (const turn of [0, 24, -24, 48, -48, 72, -72]) {
       const hh = h + turn * side * DEG;
       const nx = { x: cur.x + Math.cos(hh) * step, y: cur.y + Math.sin(hh) * step };
@@ -193,6 +222,14 @@ const walk = (kind: BotKind, start: Pt, heading: number, maxLen: number, R: () =
             const q = { x: cur.x + (nx.x - cur.x) * first, y: cur.y + (nx.y - cur.y) * first };
             if (dist(cur, q) > 1) pts.push(q);
             return pts;
+          }
+        }
+        // Too close to another crack (clear of its own root): try turning away.
+        if (others.length && dist(nx, start) > SEP_CLEAR) {
+          const near = nearestOn(nx, others);
+          if (near.d < CRACK_SEP) {
+            if (!crowded) crowded = near.q;
+            continue;
           }
         }
         if (turn !== 0 && ++swerves > 3 + hugs) return pts;
@@ -224,7 +261,11 @@ const walk = (kind: BotKind, start: Pt, heading: number, maxLen: number, R: () =
         return pts;
       }
     }
-    if (!placed) break;
+    if (!placed) {
+      // Hemmed in by a neighbour: meet it (a T-junction) when that is near.
+      if (crowded && dist(cur, crowded) < step + CRACK_SEP) pts.push(crowded);
+      break;
+    }
     pts.push(cur);
     len += step;
   }
@@ -232,7 +273,8 @@ const walk = (kind: BotKind, start: Pt, heading: number, maxLen: number, R: () =
 };
 
 // A slight seeded wobble: a midpoint nudged sideways on every longer step, so
-// the smooth curve through the points meanders a little (both ends kept).
+// the smooth curve through the points meanders a little (both ends kept). Kept
+// small: the seams drawn on these paths should run calm, never wiggly.
 const wobbled = (points: Pt[], R: () => number, amp: number): Pt[] => {
   if (amp <= 0 || points.length < 2) return points;
   const out: Pt[] = [points[0]];
@@ -242,7 +284,7 @@ const wobbled = (points: Pt[], R: () => number, amp: number): Pt[] => {
     const l = dist(a, b);
     if (l > 9) {
       const t = 0.42 + R() * 0.16;
-      const o = (R() - 0.5) * 2 * Math.min(amp, l * 0.09);
+      const o = (R() - 0.5) * 2 * Math.min(amp, l * 0.05);
       out.push({ x: a.x + (b.x - a.x) * t - ((b.y - a.y) / l) * o, y: a.y + (b.y - a.y) * t + ((b.x - a.x) / l) * o });
     }
     out.push(b);
@@ -253,7 +295,7 @@ const wobbled = (points: Pt[], R: () => number, amp: number): Pt[] => {
 // A crack (or a seam: the same path) as a smooth curve through its walk.
 // `length` is the SVG path's own length, so seal / trace fractions agree with
 // @remotion/paths everywhere.
-const toCrack = (walked: Pt[], rootDist: number, parent: number, main: boolean, R: () => number, amp = 2.2, parentT = 0): BotCrack => {
+const toCrack = (walked: Pt[], rootDist: number, parent: number, main: boolean, R: () => number, amp = 1.1, parentT = 0): BotCrack => {
   const points = wobbled(walked, R, amp);
   const c: Curve = smoothCurve(points);
   return {
@@ -266,7 +308,26 @@ const toCrack = (walked: Pt[], rootDist: number, parent: number, main: boolean, 
     parentT,
     dense: c.pts,
     cum: c.cum,
+    tip: 'free',
   };
+};
+
+// How each crack's far end finishes (set once the whole network is built).
+const markTips = (kind: BotKind, cracks: BotCrack[]) => {
+  cracks.forEach((cr, i) => {
+    const end = cr.dense[cr.dense.length - 1];
+    if (insideDepth(end, shellStage(kind)) < 3.5) {
+      cr.tip = 'edge';
+      return;
+    }
+    const near = cracks.some((o, j) => {
+      if (j === i) return false;
+      // a fork's own root sits on this crack's path: that is not its end
+      for (let k = 0; k < o.dense.length; k += 2) if (dist(o.dense[k], end) < 2.5) return true;
+      return false;
+    });
+    cr.tip = near ? 'join' : 'free';
+  });
 };
 
 // The curve a crack is drawn on, for readers that get a hand-built Crack.
@@ -316,8 +377,8 @@ export interface ImpactInfo {
   dropped?: 'merged' | 'no-room'; // not drawn: too close to an earlier impact, or no crack could start there
 }
 
-const MIN_MAIN = 30; // px: shorter mains are walked again on another heading
-const MIN_FORK = 20; // px: shorter forks are discarded
+const MIN_MAIN = 40; // px: shorter mains are walked again on another heading
+const MIN_FORK = 32; // px: shorter forks are discarded (no short spurs)
 const MIN_ROOTED = 25; // px: every drawn impact roots at least one crack this long
 const MIN_SEP = 28 * DEG; // cracks leaving one root keep at least this far apart
 
@@ -391,7 +452,8 @@ function buildCracks(kind: BotKind, impacts: Pt[], seed: string, attempt: number
   const g0 = live();
   const g = g0.reduce((s, im) => ({ x: s.x + im.at.x / g0.length, y: s.y + im.at.y / g0.length }), { x: 0, y: 0 });
 
-  const mainOpts: WalkOpts = { stepMin: 15, stepMax: 28, jitter: 6, pull: 0.12, kink: 0.18, hug: 2 };
+  // Long calm runs with the odd gentle kink (porcelain breaks run straight-ish).
+  const mainOpts: WalkOpts = { stepMin: 20, stepMax: 34, jitter: 3.2, pull: 0.16, kink: 0.1, hug: 2 };
   const cracks: BotCrack[] = [];
   // Later cracks end where they meet the drawn curve of an earlier one.
   const thinned: Pt[][] = [];
@@ -400,6 +462,8 @@ function buildCracks(kind: BotKind, impacts: Pt[], seed: string, attempt: number
     cracks.push(cr);
     thinned.push(cr.dense.filter((_, k) => k % 3 === 0 || k === cr.dense.length - 1));
   };
+  // Ends on another crack (a T-junction)?
+  const joins = (pts: Pt[]) => thinned.length > 0 && nearestOn(pts[pts.length - 1], thinned).d < 1.2;
   const mainLen = () => 175 + R() * 90;
   const dirsAt = (p: Pt) => cracks.filter((cr) => cr.main && dist(cr.points[0], p) < 0.5).map((cr) => rootDir(cr.points));
 
@@ -418,7 +482,7 @@ function buildCracks(kind: BotKind, impacts: Pt[], seed: string, attempt: number
       if (pts.length < 2 || l < minLen) continue;
       const d = rootDir(pts);
       if (dirs.some((o) => angGap(o, d) < MIN_SEP)) continue;
-      const score = l - Math.abs(sw) * 0.55;
+      const score = l - Math.abs(sw) * 0.55 - (l < 90 && joins(pts) ? 45 : 0);
       if (score > bestScore) {
         bestScore = score;
         best = pts;
@@ -502,11 +566,13 @@ function buildCracks(kind: BotKind, impacts: Pt[], seed: string, attempt: number
   }
 
   // Forks: branch off the cracks part-way along, spread over the mains first.
-  const forkOpts: WalkOpts = { stepMin: 11, stepMax: 19, jitter: 7, pull: 0.12, kink: 0.2 };
+  const forkOpts: WalkOpts = { stepMin: 15, stepMax: 25, jitter: 3.8, pull: 0.16, kink: 0.12 };
   const junctions: { p: Pt; angle: number; links: WeakLink[] }[] = [];
   const forksOn = (i: number) => cracks.filter((cr) => cr.parent === i).length;
-  const fork = (minParent: number, minLen: number, tries: number, mainsOnly: boolean) => {
-    for (let t0 = 0; cracks.length < n && t0 < tries; t0++) {
+  // `shortJoin`: a fork shorter than this that only bridges to another crack
+  // is dropped (no zigzag connectors between seams).
+  const fork = (minParent: number, minLen: number, tries: number, mainsOnly: boolean, shortJoin = 80, upTo = n) => {
+    for (let t0 = 0; cracks.length < upTo && t0 < tries; t0++) {
       const order = cracks
         .map((cr, i) => ({ i, w: (cr.length * (cr.main ? 1 : 0.45) * (0.6 + R())) / (1 + forksOn(i)) }))
         .filter((o) => !mainsOnly || cracks[o.i].main)
@@ -520,18 +586,20 @@ function buildCracks(kind: BotKind, impacts: Pt[], seed: string, attempt: number
       const turn = (R() < 0.5 ? 1 : -1) * (30 + R() * 32) * DEG;
       if (junctions.some((jn) => dist(jn.p, at.p) < 22)) continue; // forks keep apart (no double forks)
       // the longer of the two sides it could leave on
-      const want = 55 + R() * 65;
+      const want = 80 + R() * 70;
       const a1 = walk(kind, at.p, at.angle + turn, want, R, forkOpts, others());
       const a2 = walk(kind, at.p, at.angle - turn, want, R, forkOpts, others());
       const pts = polyLength(a2) > polyLength(a1) * 1.25 ? a2 : a1;
       if (pts.length < 3 || polyLength(pts) < minLen) continue;
+      if (polyLength(pts) < shortJoin && joins(pts)) continue;
       const idx = cracks.length;
-      add(toCrack(pts, parent.rootDist + parent.length * t, pi, false, R, 1.8, t));
+      add(toCrack(pts, parent.rootDist + parent.length * t, pi, false, R, 0.9, t));
       junctions.push({ p: at.p, angle: at.angle, links: [{ i: pi, t }, { i: idx, t: 0 }] });
     }
   };
-  fork(50, MIN_FORK + 6, 60, true);
-  fork(40, MIN_FORK, 60, false);
+  // Few, long forks: off the long mains first, then off anything long enough.
+  fork(80, MIN_FORK + 18, 80, true);
+  fork(60, MIN_FORK + 8, 80, false);
   // Still short: more mains from the impacts, round the free headings.
   for (let round = 0; cracks.length < n && round < 3; round++) {
     for (const im of live()) {
@@ -542,8 +610,9 @@ function buildCracks(kind: BotKind, impacts: Pt[], seed: string, attempt: number
       if (pts) add(toCrack(pts, 0, -1, true, R));
     }
   }
-  fork(30, MIN_FORK, 60, false);
-  fork(24, 16, 40, false); // last resort, so `count` always holds
+  fork(45, MIN_FORK, 60, false);
+  fork(30, 22, 40, false, 45); // last resorts, so `count` holds where there is room …
+  fork(24, 16, 40, false, 0, 5); // … and a strike always has at least 5
 
   const imps2 = live().map((im) => im.at);
 
@@ -602,6 +671,7 @@ function buildCracks(kind: BotKind, impacts: Pt[], seed: string, attempt: number
     weakSpots.push({ x: c.p.x, y: c.p.y, r, pts: blobPts(R), angle: c.angle, links: c.links });
   }
 
+  markTips(kind, cracks);
   const reach = cracks.reduce((m, cr) => Math.max(m, cr.rootDist + cr.length), 1);
   const set: BotCrackSet = { kind, cracks, weakSpots, longest, reach, impacts: live().map((im) => im.at), impactInfo: info };
   return set;
@@ -619,11 +689,12 @@ export function makeHairline(kind: BotKind, at: Pt, seed: string, length = 58): 
   let best: Pt[] = [p];
   for (let k = 0; k < 6; k++) {
     const h = toC + (R() - 0.5) * 2.2;
-    const pts = walk(kind, p, h, length, R, { stepMin: 6, stepMax: 11, jitter: 10, pull: 0.15, kink: 0.35 });
+    const pts = walk(kind, p, h, length, R, { stepMin: 7, stepMax: 12, jitter: 7, pull: 0.16, kink: 0.25 });
     if (polyLength(pts) > polyLength(best)) best = pts;
     if (polyLength(best) > length * 0.85) break;
   }
-  const crack = toCrack(best, 0, -1, true, R, 1.2);
+  const crack = toCrack(best, 0, -1, true, R, 0.8);
+  markTips(kind, [crack]);
   const set: BotCrackSet = { kind, cracks: [crack], weakSpots: [], longest: 0, reach: Math.max(1, crack.length), impacts: [], hairline: true };
   return set;
 }
@@ -634,6 +705,7 @@ export function makeHairline(kind: BotKind, at: Pt, seed: string, length = 58): 
 export const crackRootDist = (cr: Crack) => (cr as Partial<BotCrack>).rootDist ?? 0;
 export const setReach = (s: CrackSet) =>
   (s as Partial<BotCrackSet>).reach ?? s.cracks.reduce((m, cr) => Math.max(m, crackRootDist(cr) + cr.length), 1);
+export const crackTip = (cr: Crack): CrackTip => (cr as Partial<BotCrack>).tip ?? 'free';
 export const isHairline = (s: CrackSet) => (s as Partial<BotCrackSet>).hairline ?? (s.cracks.length === 1 && s.weakSpots.length === 0);
 
 export const weakPts = (s: CrackSet, i: number): Pt[] => {
