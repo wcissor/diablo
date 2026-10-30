@@ -10,7 +10,7 @@ import type { CrackSet, CrackState, HandPose, Pt, TailCrescentPose } from '../ca
 import { makeCracks, makeHairline } from '../cast/Bots';
 import { clawTips } from '../cast/Hands';
 import { tailTips } from '../cast/Tail';
-import { clamp, easeOutCubic, invLerp, lerp } from '../lib/anim';
+import { clamp, easeInOutCubic, easeOutCubic, invLerp, lerp } from '../lib/anim';
 
 /* ───────────── Where the blows land ───────────── */
 
@@ -133,7 +133,9 @@ export const sealAt = (f: number, kind: BotKind): number[] => {
   const out = set.cracks.map(() => 0);
   for (const s of sealSchedule()) {
     if (s.kind !== kind) continue;
-    out[s.index] = s.index === set.longest && kind === 'bubble' ? invLerp(s.start, s.end, f) : easeOutCubic(invLerp(s.start, s.end, f));
+    // the traced crack fills right behind the claw tip (which eases along it); the rest pour in
+    out[s.index] =
+      s.index === set.longest && kind === 'bubble' ? easeInOutCubic(invLerp(s.start, s.end, f - 1)) : easeOutCubic(invLerp(s.start, s.end, f));
   }
   return out;
 };

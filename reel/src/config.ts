@@ -58,7 +58,7 @@ export const EVENTS = {
   trace: { from: 222, to: 252 }, // one claw tip runs along the bubble's longest crack
   fillAll: { from: 258, stagger: 3 }, // the other cracks fill, about 3 frames apart
   allSealed: 294, // 9.8 s: the light turns warm gold
-  tailSeams: { from: 330, stagger: 4 }, // his seams appear on his crescent, one by one
+  tailSeams: { from: 330, stagger: 2, count: 14 }, // his seams appear on his crescent, one by one
   crack1: { at: 366, flick: 372, sealFrames: 6 }, // hairline on the orb
   crack2: { at: 402, sealFrames: 3 }, // tiny crack on the cube, sealed before it notices
   eyesNarrow: 408,

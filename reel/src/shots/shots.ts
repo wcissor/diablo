@@ -439,7 +439,7 @@ export const shot5 = (f: number): SceneState => {
     head: { eyes: { open: 1, look, narrow }, warm: 0.6 },
     tailFront: {
       crescent: { x: lerp(90, 262, curl), y: 770, rot: lerp(-40, 8, curl), scale: 0.9 },
-      seams: clamp((f - EVENTS.tailSeams.from) / EVENTS.tailSeams.stagger, 0, 8),
+      seams: clamp((f - EVENTS.tailSeams.from) / EVENTS.tailSeams.stagger, 0, EVENTS.tailSeams.count),
       warm: 0.5,
     },
     hands: [flickHand(f)],
@@ -482,11 +482,11 @@ export const shot6 = (f: number): SceneState => {
               rot: lerp(TAIL_REST.rot ?? 0, -70, dive),
               scale: (TAIL_REST.scale ?? 1) * (1 - 0.6 * dive),
             },
-            seams: 8,
+            seams: EVENTS.tailSeams.count,
             warm: 0.6,
           }
-        : { ring: ring('back'), seams: 8, warm: 0.6 },
-    tailFront: f >= EVENTS.ring.from ? { ring: ring('front'), seams: 8, warm: 0.6 } : undefined,
+        : { ring: ring('back'), seams: EVENTS.tailSeams.count, warm: 0.6 },
+    tailFront: f >= EVENTS.ring.from ? { ring: ring('front'), seams: EVENTS.tailSeams.count, warm: 0.6 } : undefined,
     bots: mapBots((k) => ({
       idle: true,
       bright: 1,
