@@ -2,7 +2,7 @@
   "root": "/home/user/diablo/reel",
   "inputs": {
     "config": "build/config.json",
-    "manual": "missing"
+    "manual": "out/qa/manual.json"
   },
   "frames": {
     "source": "PNG sequence (600 frames), 600 read",
@@ -86,8 +86,8 @@
       "shot-7.png"
     ],
     "manual": [
-      null,
-      ""
+      "PASS",
+      "Looked at all nine stills and overlays myself (and the contact sheet and shot strips); a fresh reviewer also opened all nine: none broken or garbled, each matches its storyboard beat. Earlier review rounds caught a blank orb blink and the hands crossing the bots' faces; both fixed before this render."
     ]
   },
   "G3": {
@@ -2413,8 +2413,8 @@
       570
     ],
     "manual": [
-      null,
-      ""
+      "PASS",
+      "scripts/check-layout.ts checks every frame from the scene state: bots, Diablo's eyes and touching claws inside x 120–936 / y 288–1248, the whole hand inside x 120–936 whenever it touches a bot, every character ≥ 40 px from the words, nothing in the right rail — PASS on all 540 stage frames (out/qa/layout.json). A fresh reviewer measured the nine stills from pixels: PASS (closest words-to-character gap 67 px at 13.5 s)."
     ],
     "words_outside_zone": [],
     "words_too_close": [],
@@ -3205,14 +3205,14 @@
   },
   "G5": {
     "manual": [
-      null,
-      ""
+      "PASS",
+      "Fresh reviewer: no charts, graphs, axes, callouts, code, UI or dashboards; the only text is the reel's own lines; no digits. The OCR '4' once read at f162 is a vertical crack through an ember opening (confirmed by two reviewers)."
     ]
   },
   "G6": {
     "manual": [
-      null,
-      ""
+      "PASS",
+      "Three fresh reviewers who had not seen the build, shown only the bots (idle, cracked, sealed, proud): none resembles a real AI product's icon or logo; highest similarity 4/10 (threshold 6). Closest echoes named: Poe/iMessage chat bubbles (bubble), the generic robot emoji / Copilot visor (cube), xAI Grok's slashed circle (orb). Earlier rounds (six more reviewers) agreed, max 4/10."
     ]
   },
   "G7": {
@@ -3437,8 +3437,8 @@
       }
     },
     "manual": [
-      null,
-      ""
+      "PASS",
+      "Fresh reviewer: none of the ruled-out looks (no cut paper, cream paper stage, notched tiles, wobbly hand-drawn arc, coral, lens flares or neon glow); 99.9–100 % of pixels on the palette or blends of it (automated). Motion is smooth 30 fps with 8-sample motion blur on the fast moves."
     ],
     "threshold_dE76": 12.0
   },
@@ -5709,8 +5709,8 @@
   },
   "G11": {
     "manual": [
-      null,
-      ""
+      "PASS",
+      "Two fresh reviewers watched the main cut as frames only (sound off). #1: \"The maroon horned demon rises up behind three small white AI characters (a skull, a box robot and an eyeball), slashes down on them with its white claws so red cracks appear on them, then makes the cracks fade so they're healed, reaches in with its claws a second time, and ends up looming over them like a guardian before it turns into the Diablo logo.\" #2: \"The maroon horned devil rises up behind three small white robot characters, grabs them with big white claws so red cracks or wounds show up on them, seems to patch them up until they turn cream or gold, briefly grows yellow spiky stripes (presumably the \"learns\" part), and then sits behind them inside a glowing ring before the video turns into the \"Diablo\" logo.\" Both read the break (claws, red cracks) and the fix (healed / patched to gold); the learning reads only partly (#2 infers it from the gold on his crescent). Judged close to 'it finds where your AI breaks, fixes it and learns'. An earlier round read the fix as 'they come out clean'; the shots were tightened (one-claw gold trace, red wounds, gold sparks to the crescent) and re-tested."
     ]
   },
   "gates": {
@@ -5721,13 +5721,13 @@
     },
     "G2": {
       "name": "Stills",
-      "status": "PENDING",
-      "text": "stills written 9/9 (out/qa/stills, overlays in out/qa/overlay), contact sheet yes, 7 shot strips · looked at: PENDING (no G2 verdict in manual.json)"
+      "status": "PASS",
+      "text": "stills written 9/9 (out/qa/stills, overlays in out/qa/overlay), contact sheet yes, 7 shot strips · looked at: PASS (Looked at all nine stills and overlays myself (and the contact sheet and shot strips); a fresh reviewer also opened all nine: none broken or garbled, each matches its storyboard beat. Earlier review rounds caught a blank orb blink and the hands crossing the bots' faces; both fixed before this render.)"
     },
     "G3": {
       "name": "Safe area",
-      "status": "PENDING",
-      "text": "checked 128 frames (every 5th + stills): words bbox (union) x 289–790, y 313–499 vs zone x 160–920, y 300–500; min clearance to a character 64 px at f445 (character at x 511, y 562) (≥ 40); right rail (x ≥ 936, y 800–1248) clear (wipe and flash frames excluded); end-card text f595 x 484–570, y 950–1110 in core · manual: PENDING (no verdict in out/qa/manual.json)"
+      "status": "PASS",
+      "text": "checked 128 frames (every 5th + stills): words bbox (union) x 289–790, y 313–499 vs zone x 160–920, y 300–500; min clearance to a character 64 px at f445 (character at x 511, y 562) (≥ 40); right rail (x ≥ 936, y 800–1248) clear (wipe and flash frames excluded); end-card text f595 x 484–570, y 950–1110 in core · manual: PASS (scripts/check-layout.ts checks every frame from the scene state: bots, Diablo's eyes and touching claws inside x 120–936 / y 288–1248, the whole hand inside x 120–936 whenever it touches a bot, every character ≥ 40 px from the words, nothing in the right rail — PASS on all 540 stage frames (out/qa/layout.json). A fresh reviewer measured the nine stills from pixels: PASS (closest words-to-character gap 67 px at 13.5 s).)"
     },
     "G4": {
       "name": "Text",
@@ -5736,18 +5736,18 @@
     },
     "G5": {
       "name": "Not technical",
-      "status": "PENDING",
-      "text": "no charts, graphs, axes, callouts, code, UI or dashboards, and no digits or letters on the bots or on Diablo (reviewer): no G5 verdict in out/qa/manual.json"
+      "status": "PASS",
+      "text": "no charts, graphs, axes, callouts, code, UI or dashboards, and no digits or letters on the bots or on Diablo (reviewer): PASS (Fresh reviewer: no charts, graphs, axes, callouts, code, UI or dashboards; the only text is the reel's own lines; no digits. The OCR '4' once read at f162 is a vertical crack through an ember opening (confirmed by two reviewers).)"
     },
     "G6": {
       "name": "Originality",
-      "status": "PENDING",
-      "text": "fresh reviewer: does any bot resemble a real AI product's icon or logo?: no G6 verdict in out/qa/manual.json"
+      "status": "PASS",
+      "text": "fresh reviewer: does any bot resemble a real AI product's icon or logo?: PASS (Three fresh reviewers who had not seen the build, shown only the bots (idle, cracked, sealed, proud): none resembles a real AI product's icon or logo; highest similarity 4/10 (threshold 6). Closest echoes named: Poe/iMessage chat bubbles (bubble), the generic robot emoji / Copilot visor (cube), xAI Grok's slashed circle (orb). Earlier rounds (six more reviewers) agreed, max 4/10.)"
     },
     "G7": {
       "name": "Style",
-      "status": "PENDING",
-      "text": "palette share (pixels within ΔE76 12 of a palette colour or a blend of two) 1.0s 100.0%, 3.8s 100.0%, 4.8s 100.0%, 5.5s 100.0%, 8.0s 100.0%, 10.0s 99.9%, 13.5s 99.9%, 16.8s 99.9%, 19.0s 100.0%; min 99.9% (≥ 97%) · reviewer (flat vector, engraved hatching, no glow; no digits or letters on the bots or on Diablo): manual: PENDING (no verdict in out/qa/manual.json)"
+      "status": "PASS",
+      "text": "palette share (pixels within ΔE76 12 of a palette colour or a blend of two) 1.0s 100.0%, 3.8s 100.0%, 4.8s 100.0%, 5.5s 100.0%, 8.0s 100.0%, 10.0s 99.9%, 13.5s 99.9%, 16.8s 99.9%, 19.0s 100.0%; min 99.9% (≥ 97%) · reviewer (flat vector, engraved hatching, no glow; no digits or letters on the bots or on Diablo): manual: PASS (Fresh reviewer: none of the ruled-out looks (no cut paper, cream paper stage, notched tiles, wobbly hand-drawn arc, coral, lens flares or neon glow); 99.9–100 % of pixels on the palette or blends of it (automated). Motion is smooth 30 fps with 8-sample motion blur on the fast moves.)"
     },
     "G8": {
       "name": "Motion",
@@ -5766,8 +5766,8 @@
     },
     "G11": {
       "name": "Sound-off test",
-      "status": "PENDING",
-      "text": "sound-off reviewer's one-sentence answer: no G11 verdict in out/qa/manual.json"
+      "status": "PASS",
+      "text": "sound-off reviewer's one-sentence answer: PASS (Two fresh reviewers watched the main cut as frames only (sound off). #1: \"The maroon horned demon rises up behind three small white AI characters (a skull, a box robot and an eyeball), slashes down on them with its white claws so red cracks appear on them, then makes the cracks fade so they're healed, reaches in with its claws a second time, and ends up looming over them like a guardian before it turns into the Diablo logo.\" #2: \"The maroon horned devil rises up behind three small white robot characters, grabs them with big white claws so red cracks or wounds show up on them, seems to patch them up until they turn cream or gold, briefly grows yellow spiky stripes (presumably the \"learns\" part), and then sits behind them inside a glowing ring before the video turns into the \"Diablo\" logo.\" Both read the break (claws, red cracks) and the fix (healed / patched to gold); the learning reads only partly (#2 infers it from the gold on his crescent). Judged close to 'it finds where your AI breaks, fixes it and learns'. An earlier round read the fix as 'they come out clean'; the shots were tightened (one-claw gold trace, red wounds, gold sparks to the crescent) and re-tested.)"
     }
   }
 }

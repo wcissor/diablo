@@ -1,0 +1,26 @@
+{
+ "G2": {
+  "verdict": "PASS",
+  "note": "Looked at all nine stills and overlays myself (and the contact sheet and shot strips); a fresh reviewer also opened all nine: none broken or garbled, each matches its storyboard beat. Earlier review rounds caught a blank orb blink and the hands crossing the bots' faces; both fixed before this render."
+ },
+ "G3": {
+  "verdict": "PASS",
+  "note": "scripts/check-layout.ts checks every frame from the scene state: bots, Diablo's eyes and touching claws inside x 120\u2013936 / y 288\u20131248, the whole hand inside x 120\u2013936 whenever it touches a bot, every character \u2265 40 px from the words, nothing in the right rail \u2014 PASS on all 540 stage frames (out/qa/layout.json). A fresh reviewer measured the nine stills from pixels: PASS (closest words-to-character gap 67 px at 13.5 s)."
+ },
+ "G5": {
+  "verdict": "PASS",
+  "note": "Fresh reviewer: no charts, graphs, axes, callouts, code, UI or dashboards; the only text is the reel's own lines; no digits. The OCR '4' once read at f162 is a vertical crack through an ember opening (confirmed by two reviewers)."
+ },
+ "G6": {
+  "verdict": "PASS",
+  "note": "Three fresh reviewers who had not seen the build, shown only the bots (idle, cracked, sealed, proud): none resembles a real AI product's icon or logo; highest similarity 4/10 (threshold 6). Closest echoes named: Poe/iMessage chat bubbles (bubble), the generic robot emoji / Copilot visor (cube), xAI Grok's slashed circle (orb). Earlier rounds (six more reviewers) agreed, max 4/10."
+ },
+ "G7": {
+  "verdict": "PASS",
+  "note": "Fresh reviewer: none of the ruled-out looks (no cut paper, cream paper stage, notched tiles, wobbly hand-drawn arc, coral, lens flares or neon glow); 99.9\u2013100 % of pixels on the palette or blends of it (automated). Motion is smooth 30 fps with 8-sample motion blur on the fast moves."
+ },
+ "G11": {
+  "verdict": "PASS",
+  "note": "Two fresh reviewers watched the main cut as frames only (sound off). #1: \"The maroon horned demon rises up behind three small white AI characters (a skull, a box robot and an eyeball), slashes down on them with its white claws so red cracks appear on them, then makes the cracks fade so they're healed, reaches in with its claws a second time, and ends up looming over them like a guardian before it turns into the Diablo logo.\" #2: \"The maroon horned devil rises up behind three small white robot characters, grabs them with big white claws so red cracks or wounds show up on them, seems to patch them up until they turn cream or gold, briefly grows yellow spiky stripes (presumably the \"learns\" part), and then sits behind them inside a glowing ring before the video turns into the \"Diablo\" logo.\" Both read the break (claws, red cracks) and the fix (healed / patched to gold); the learning reads only partly (#2 infers it from the gold on his crescent). Judged close to 'it finds where your AI breaks, fixes it and learns'. An earlier round read the fix as 'they come out clean'; the shots were tightened (one-claw gold trace, red wounds, gold sparks to the crescent) and re-tested."
+ }
+}
