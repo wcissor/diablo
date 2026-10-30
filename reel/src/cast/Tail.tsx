@@ -7,7 +7,7 @@ import { DIABLO_SCALE } from '../geometry';
 import { C, HATCH, SEAM } from '../theme';
 import { clamp, invLerp, rndRange, smooth, type Pt } from '../lib/anim';
 import type { TailCrescentPose, TailProps, TailRing } from './types';
-import { ap, chain, invv, polyD, R, S, scaleOf, stripD, stripRimD, stripUnderD, svgM, T, type Mat, type Strip } from './diablo/geom';
+import { ap, chain, invv, polyD, R, S, scaleOf, stripD, stripRimD, stripUnderD, svgM, T, unrotate, type Mat, type Strip } from './diablo/geom';
 import {
   along,
   CRESCENT_CENTROID,
@@ -83,13 +83,9 @@ const CrescentDefs: React.FC = () => (
     <clipPath id={`${ID}-clip`}>
       <path d={CRESCENT_PATH} />
     </clipPath>
-    <pattern
-      id={`${ID}-hatch`}
-      patternUnits="userSpaceOnUse"
-      width={HATCH.gap}
-      height={HATCH.gap}
-      patternTransform={`scale(${1 / DIABLO_SCALE}) rotate(${HATCH.angle})`}
-    >
+    {/* Canvas-oriented hatch: used inside an unrotate() group, so it stays 1.5/7 px at 9°
+        whatever the crescent's rot, flip and scale. */}
+    <pattern id={`${ID}-hatch`} patternUnits="userSpaceOnUse" width={HATCH.gap} height={HATCH.gap} patternTransform={`rotate(${HATCH.angle})`}>
       <line x1={HATCH.gap / 2} y1={-1} x2={HATCH.gap / 2} y2={HATCH.gap + 1} stroke={C.cream} strokeWidth={HATCH.width} />
     </pattern>
     {[
@@ -117,6 +113,7 @@ const Crescent: React.FC<{ pose: TailCrescentPose; seams: number; ember: number;
     return <path transform={svgM(m)} d={CRESCENT_PATH} fill={C.night} />;
   }
   const k = scaleOf(m);
+  const hatchR = 300 * Math.abs(pose.scale ?? 1); // canvas px round the centroid: covers the blade
   const rim = invv(m, { x: 0, y: 3 });
   const shadow = invv(m, { x: 0, y: 2 });
   // Seams in local units so they read 6 px gold with a 2 px cream core on the canvas.
@@ -129,7 +126,11 @@ const Crescent: React.FC<{ pose: TailCrescentPose; seams: number; ember: number;
       <path d={CRESCENT_PATH} fill={C.cream} />
       <g clipPath={`url(#${ID}-clip)`}>
         <path d={CRESCENT_PATH} fill={C.maroon} transform={`translate(${rim.x} ${rim.y})`} />
-        <rect x={BOX.x} y={BOX.y} width={BOX.w} height={BOX.h} fill={`url(#${ID}-hatch)`} opacity={0.18} mask={`url(#${ID}-shade)`} />
+        <g mask={`url(#${ID}-shade)`} opacity={0.18}>
+          <g transform={svgM(unrotate(m, CRESCENT_CENTROID))}>
+            <rect x={-hatchR} y={-hatchR} width={2 * hatchR} height={2 * hatchR} fill={`url(#${ID}-hatch)`} />
+          </g>
+        </g>
         {ember > 0 ? (
           <>
             <rect x={BOX.x} y={BOX.y} width={BOX.w} height={BOX.h} fill={C.ember} opacity={0.2 * ember} mask={`url(#${ID}-under)`} />

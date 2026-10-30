@@ -30,6 +30,21 @@ manual.json holds the human/agent verdicts, one key per gate:
    "G5":  ..., "G6": ..., "G7": ..., "G11": ...,
    "G10_voice_words": {"verdict": "PASS", "note": "listened: words match"}}
 A value may also be a plain string such as "PASS: no charts anywhere".
+Gates with an automated part (G2, G3, G7) FAIL on that part alone; otherwise
+the manual verdict decides, and PENDING means nobody has given one yet.
+
+What is measured (thresholds are the constants below)
+  G1  ffprobe -count_frames on both cuts; profile, audio bitrate and faststart are notes, not failures
+  G3  every 5th frame + the stills: cream glyphs above y 520 (thick strokes grown from the centre column)
+      → bbox vs the words zone and distance to the nearest non-background pixel; right-rail pixels
+      (x ≥ 936, y 800–1248, stage line, wipe and flash excluded); end-card text inside the core area
+  G4  tesseract on the words region (2×, psm 6 then 4) one frame per shot and the end card; psm 11 on
+      whole stills for digits/% and stray words (text-sized tokens only); glyph heights from connected
+      components; WCAG contrast of glyph colour vs the brightest 5 % of the surrounding background
+  G7  share of pixels within ΔE76 12 of a palette colour or an sRGB blend of two
+  G8  luma flash detection, phase-correlation shake, noise-floored motion ratio, frame-change spikes vs
+      spectral-flux onsets (and hard stops) of audio/build/score.wav
+  G10 ffmpeg ebur128 on the main cut, sample peak and K-weighted 400 ms loudness from its decoded audio
 """
 
 from __future__ import annotations
@@ -42,6 +57,7 @@ import functools
 import io
 import json
 import math
+import os
 import re
 import shutil
 import struct
@@ -129,8 +145,9 @@ def log(msg: str) -> None:
     print(f"[qa] {msg}", file=sys.stderr, flush=True)
 
 
-def run(cmd: list[str], timeout: int = 600, text: bool = True) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, capture_output=True, text=text, timeout=timeout)
+def run(cmd: list[str], timeout: int = 600, text: bool = True, env: dict | None = None) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, capture_output=True, text=text, timeout=timeout,
+                          env={**os.environ, **env} if env else None)
 
 
 def have(tool: str) -> bool:
@@ -433,6 +450,8 @@ class Frames:
             return
         log(f"scanning frames: {self.desc}")
         r0, r1 = self.SHAKE_ROWS
+        # thumbnails: every 5th frame for the contact sheet, and every 5th from each shot's first frame for its strip
+        thumbs = set(range(0, NF, 5)) | {f for s in self.ctx.shots() or [] for f in range(s["from"], s["to"] + 1, 5)}
         for i, rgb in source:
             y = luma_of(rgb)
             self.have[i] = True
@@ -443,7 +462,7 @@ class Frames:
             self.small[i] = y.reshape(H // 8, 8, W // 8, 8).mean(axis=(1, 3))
             if i in self.SHAKE_RANGE:
                 self.shake[i] = y[r0:r1].reshape((r1 - r0) // 2, 2, W // 2, 2).mean(axis=(1, 3))
-            if i % 5 == 0:
+            if i in thumbs:
                 self.thumbs[i] = Image.fromarray(rgb).reduce(10)
             if i in keep:
                 self.full[i] = np.array(rgb, copy=True)
@@ -790,7 +809,7 @@ def g2_stills(ctx: Ctx, fr: Frames) -> Result:
     for s in ctx.shots() or []:
         if not fr.thumbs:
             break
-        items = [(f, fr.thumbs.get(f)) for f in range(s["from"], s["to"] + 1) if f % 5 == 0]
+        items = [(f, fr.thumbs.get(f)) for f in range(s["from"], s["to"] + 1, 5)]
         title = f"Shot {s['id']}: {s['name']} (frames {s['from']}–{s['to']}), every 5th frame"
         thumb_grid(items, len(items), title).save(ctx.qa / "strips" / f"shot-{s['id']}.png")
         strips.append(f"shot-{s['id']}.png")
@@ -818,9 +837,29 @@ def text_and_clearance(rgb: np.ndarray, band_y1: int = 700) -> dict:
         return out
     # glyph strokes are thick (Bodoni stems ≥ 8 px at 88 px); a 3 px cream rim on a hand or a horn is not text
     lab_c, n_c = ndimage.label(cream, structure=np.ones((3, 3)))
-    radius = ndimage.maximum(ndimage.distance_transform_edt(cream), lab_c, index=np.arange(1, n_c + 1))
-    core = np.isin(lab_c, np.arange(1, n_c + 1)[np.asarray(radius) >= 2.5])
-    out["rim_px_ignored"] = int((cream & ~core).sum())
+    radius = np.atleast_1d(ndimage.maximum(ndimage.distance_transform_edt(cream), lab_c, index=np.arange(1, n_c + 1)))
+    thick = {k + 1 for k in range(n_c) if radius[k] >= 2.5}
+    out["rim_px_ignored"] = int((cream & ~np.isin(lab_c, list(thick))).sum())
+    # the words block: start from the glyphs crossing the centre column (x 440–640) and add neighbours on the same
+    # rows less than 60 px away (a word space is 25–40 px); a thick cream claw further off stays a character, and
+    # one closer that hangs from a hand runs on below y 540 and is caught as touching the words
+    boxes = {k + 1: sl for k, sl in enumerate(ndimage.find_objects(lab_c)) if sl is not None and k + 1 in thick}
+    text_ids = {k for k, sl in boxes.items() if sl[1].start < 640 and sl[1].stop > 440}
+    grown = True
+    while grown:
+        grown = False
+        for k, sl in boxes.items():
+            if k in text_ids:
+                continue
+            for t in list(text_ids):
+                tl = boxes[t]
+                rows = min(sl[0].stop, tl[0].stop) - max(sl[0].start, tl[0].start)
+                gap = max(sl[1].start - tl[1].stop, tl[1].start - sl[1].stop)
+                if rows > 0 and gap < 60:
+                    text_ids.add(k)
+                    grown = True
+                    break
+    core = np.isin(lab_c, list(text_ids))
     if core.sum() < 30:
         return out
     rows = np.where(core.sum(axis=1) >= 2)[0]
@@ -919,6 +958,10 @@ def g3_safe(ctx: Ctx, fr: Frames) -> Result:
     if not smp:
         return Result(MISSING, "no frames")
     boxes, clear, out_zone, too_close, no_text, rail, end_bad = [], [], [], [], [], [], []
+    ev = ctx.events()
+    wipe, flash = ev.get("wipe") or {"from": 540, "to": 548}, ev.get("flash") or {"from": 138, "to": 139}
+    # the 9° wipe sweeps across the whole frame and the flash fills it with cream, by design: not rail action
+    by_design = set(range(wipe["from"], wipe["to"] + 1)) | set(range(flash["from"], flash["to"] + 1))
     for f in sorted(smp):
         r = smp[f]
         if r["words"]:
@@ -932,7 +975,7 @@ def g3_safe(ctx: Ctx, fr: Frames) -> Result:
                     clear.append((r["clearance"], f, r.get("nearest_character_px")))
                     if r["clearance"] < WORDS_CLEAR:
                         too_close.append(f)
-        if r["rail"]["px_800_1248"] > RAIL_MAX_PX:
+        if r["rail"]["px_800_1248"] > RAIL_MAX_PX and f not in by_design:
             rail.append(f)
         eb = r.get("end_card_text_bbox")
         if eb is not None and not SAFE.contains(eb):
@@ -956,7 +999,7 @@ def g3_safe(ctx: Ctx, fr: Frames) -> Result:
         text += (f"; right rail (x ≥ 936, y 800–1248) has action at f{frame_ranges(rail)} "
                  f"(max {smp[top]['rail']['px_800_1248']} px at f{top}, {smp[top]['rail']['bbox_800_1248'].s()})")
     else:
-        text += "; right rail (x ≥ 936, y 800–1248) clear"
+        text += "; right rail (x ≥ 936, y 800–1248) clear (wipe and flash frames excluded)"
     ends = [f for f in smp if smp[f].get("end_card_text_bbox")]
     if ends:
         f = max(ends)
@@ -981,7 +1024,8 @@ def ocr_prep(rgb: np.ndarray, scale: int) -> Image.Image:
 def tesseract(img: Image.Image, psm: int, tmp: Path, name: str) -> list[dict]:
     p = tmp / f"{name}.png"
     img.save(p)
-    r = run(["tesseract", str(p), "stdout", "--psm", str(psm), "tsv"], timeout=180)
+    r = run(["tesseract", str(p), "stdout", "--psm", str(psm), "tsv"], timeout=180,
+            env={"OMP_THREAD_LIMIT": "1"})  # one thread: other renders share the machine
     rows = []
     for row in csv.DictReader(io.StringIO(r.stdout), delimiter="\t", quoting=csv.QUOTE_NONE):
         try:

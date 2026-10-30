@@ -7,12 +7,12 @@
 // CameraMotionBlur's stacked copies all resolve the same url(#id).
 
 import React from 'react';
-import { CRESCENT_PATH, HEAD_PATH } from '../logo';
+import { CRESCENT_PATH, HEAD_BOX, HEAD_PATH } from '../logo';
 import { DIABLO_EYES_Y, DIABLO_ORIGIN, DIABLO_SCALE, MARK_ORIGIN, MARK_SCALE } from '../geometry';
 import { C, HATCH } from '../theme';
 import { clamp, type Pt } from '../lib/anim';
 import type { EyeState, HeadProps, MarkProps } from './types';
-import { ap, centroid, chain, clipHalf, invv, polyD, R, roundRectPoly, S, scaleOf, svgM, T, type Mat } from './diablo/geom';
+import { ap, centroid, chain, invv, polyD, R, S, scaleOf, signedArea, svgM, T, unrotate, type Mat } from './diablo/geom';
 import { EYE, HEAD_REGION, type Eye } from './diablo/shape';
 
 const PIVOT: Pt = { x: 540, y: DIABLO_EYES_Y };
@@ -43,38 +43,72 @@ export function eyeCentres(p: HeadProps): Pt[] {
 
 /* ───────────────────────────── the eyes ───────────────────────────── */
 
-// One gold slit as a polygon in trace coordinates. `open` scales the long axis
-// about the centre; `narrow` shortens it and brings down a flat lid that tilts
-// toward the nose (the pleased, knowing squint).
-export const eyePoly = (e: Eye, side: 0 | 1, s: EyeState): Pt[] | null => {
+// Optional extra eye control, beyond the EyeState contract: `glare` 0..1 is the
+// menacing squint for the strike (a flat lid tilted down toward the nose). Pass
+// it inside `eyes`; `narrow` stays the pleased, satisfied squint.
+export type DiabloEyeState = EyeState & { glare?: number };
+
+const COLS = 36; // columns across a slit
+
+// One gold slit as a polygon in trace coordinates, built column by column in
+// the slit's own frame (u across, v down its long axis) and then leaned.
+// `open` scales the long axis about the centre. `narrow` (pleased, satisfied)
+// makes it about 38 % shorter, brings down a flat upper lid that droops a
+// little toward the OUTER corner, and pushes the bottom up with a round cheek,
+// so each eye becomes a short arch (∩): a contented smile with the eyes.
+// `glare` (menacing) brings the lid down tilted toward the nose instead.
+export const eyePoly = (e: Eye, side: 0 | 1, s: DiabloEyeState): Pt[] | null => {
   const open = clamp(s.open, 0, 1.2);
   const narrow = clamp(s.narrow ?? 0);
-  const h = e.h * open * (1 - 0.22 * narrow);
+  const glare = clamp(s.glare ?? 0);
+  const h = e.h * open * Math.max(0.35, 1 - 0.38 * narrow - 0.18 * glare);
   if (h < 0.6) return null;
-  const w = e.w * (1 + 0.05 * narrow);
-  const r = Math.min(w * 0.47, h / 2);
-  const local = roundRectPoly(w, h, r, 7);
+  const w = e.w * (1 + 0.06 * narrow);
+  const rt = Math.min(w * 0.47, h / 2); // top corners
+  const rb = Math.min(w * 0.47 * (1 - 0.35 * narrow), h / 2); // bottom corners: a little squarer
   const lean = (e.lean * Math.PI) / 180;
   const cs = Math.cos(lean);
   const sn = Math.sin(lean);
-  // The squint sits a touch lower: the lid comes down more than the cheek rises.
-  const cy = e.cy + e.h * 0.06 * narrow * open;
-  const cx = e.cx - e.h * 0.06 * narrow * open * sn;
-  let P = local.map((q) => ({ x: cx + q.x * cs - q.y * sn, y: cy + q.x * sn + q.y * cs }));
-  if (narrow > 0.001) {
-    // A flat lid through a point on the slit's axis, tilting down toward the nose.
-    const cut = h * (0.5 - 0.2 * narrow); // how far above the centre, along the axis
-    const L = { x: cx + cut * sn, y: cy - cut * cs };
-    const tilt = ((side === 0 ? 1 : -1) * 20 * narrow * Math.PI) / 180;
-    // Keep what is below the line (its normal points up, rotated by the tilt).
-    const n = { x: Math.sin(tilt), y: -Math.cos(tilt) };
-    P = clipHalf(P, n, n.x * L.x + n.y * L.y);
-    if (P.length < 3) return null;
+  // Screen-space lid tilt: + falls to the right. Pleased: down toward the outer
+  // corner (left eye rises to the right). Glare: down toward the nose.
+  const sgn = side === 0 ? 1 : -1;
+  const tau = (sgn * (-7 * narrow + 20 * glare) * Math.PI) / 180;
+  const slope = Math.tan(tau - lean); // the same line in the slit's frame
+  const lidDepth = h * (0.17 * narrow + 0.26 * glare); // below the slit's top, on its axis
+  const hasLid = lidDepth > 0.01;
+  const lift = e.h * open * 0.16 * narrow; // how far the cheek pushes the bottom up, mid-slit
+  const span = w * 0.7; // the cheek's half-width: wider than the slit, so the corners stay blunt
+  const round = (u: number, r: number) => {
+    const d = Math.max(0, Math.abs(u) - (w / 2 - r));
+    return r - Math.sqrt(Math.max(0, r * r - d * d));
+  };
+  const top: Pt[] = [];
+  const bot: Pt[] = [];
+  for (let k = 0; k <= COLS; k++) {
+    const u = (-w / 2) * Math.cos((Math.PI * k) / COLS);
+    let t = -h / 2 + round(u, rt);
+    let b = h / 2 - round(u, rb);
+    if (hasLid) t = Math.max(t, -h / 2 + lidDepth + u * slope);
+    if (lift > 0.01) b = Math.min(b, h / 2 - lift * (1 - Math.pow(u / span, 2)));
+    if (b - t > 0.05) {
+      top.push({ x: u, y: t });
+      bot.push({ x: u, y: b });
+    }
   }
-  return P;
+  if (top.length < 2) return null;
+  const Q = [...top, ...bot.reverse()];
+  // Keep the visible slit where the open eye sits (its centroid on the eye's
+  // centre, dropping only a touch as it narrows), so eyeCentres barely moves.
+  const c = Math.abs(signedArea(Q)) > 1e-3 ? centroid(Q) : { x: 0, y: 0 };
+  const off = { x: -c.x, y: -c.y + e.h * open * 0.03 * (narrow + glare) };
+  return Q.map((q) => {
+    const x = q.x + off.x;
+    const y = q.y + off.y;
+    return { x: e.cx + x * cs - y * sn, y: e.cy + x * sn + y * cs };
+  });
 };
 
-const Eyes: React.FC<{ s: EyeState; fill?: string }> = ({ s, fill = C.gold }) => (
+const Eyes: React.FC<{ s: DiabloEyeState; fill?: string }> = ({ s, fill = C.gold }) => (
   <>
     {EYE.map((e, i) => {
       const P = eyePoly(e, i as 0 | 1, s);
@@ -87,6 +121,7 @@ const Eyes: React.FC<{ s: EyeState; fill?: string }> = ({ s, fill = C.gold }) =>
 
 const H = 'dh'; // id prefix for the head
 const RX = HEAD_REGION;
+const HEAD_C: Pt = { x: HEAD_BOX.x + HEAD_BOX.w / 2, y: HEAD_BOX.y + HEAD_BOX.h / 2 };
 
 // Static defs, trace coordinates of the head group.
 const HeadDefs: React.FC = () => (
@@ -94,13 +129,8 @@ const HeadDefs: React.FC = () => (
     <clipPath id={`${H}-clip`}>
       <path d={HEAD_PATH} />
     </clipPath>
-    <pattern
-      id={`${H}-hatch`}
-      patternUnits="userSpaceOnUse"
-      width={HATCH.gap}
-      height={HATCH.gap}
-      patternTransform={`scale(${1 / DIABLO_SCALE}) rotate(${HATCH.angle})`}
-    >
+    {/* Canvas-oriented hatch: used inside an unrotate() group, so it stays 1.5/7 px at 9°. */}
+    <pattern id={`${H}-hatch`} patternUnits="userSpaceOnUse" width={HATCH.gap} height={HATCH.gap} patternTransform={`rotate(${HATCH.angle})`}>
       <line x1={HATCH.gap / 2} y1={-1} x2={HATCH.gap / 2} y2={HATCH.gap + 1} stroke={C.cream} strokeWidth={HATCH.width} />
     </pattern>
     {/* Bands along the edges that face down: the head minus itself raised by k. */}
@@ -134,6 +164,7 @@ export const DiabloHead: React.FC<HeadProps> = (p) => {
   const warm = clamp(p.warm ?? 0);
   const open = clamp(p.eyes.open);
   const clipId = p.clipBelowY != null ? `${H}-below-${Math.round(p.clipBelowY * 4)}` : null;
+  const hatchR = 380 * Math.abs(p.scale ?? 1); // canvas px round the head's centre: covers it
 
   const head = p.eyesOnly ? null : p.silhouette ? (
     <g transform={svgM(m)}>
@@ -147,7 +178,11 @@ export const DiabloHead: React.FC<HeadProps> = (p) => {
       <g clipPath={`url(#${H}-clip)`}>
         <path d={HEAD_PATH} fill={C.maroon} transform={`translate(${rim.x} ${rim.y})`} />
         {/* Engraved shading on the lower half, along the edges that face down. */}
-        <rect x={RX.x} y={RX.y} width={RX.w} height={RX.h} fill={`url(#${H}-hatch)`} opacity={0.18} mask={`url(#${H}-shade)`} />
+        <g mask={`url(#${H}-shade)`} opacity={0.18}>
+          <g transform={svgM(unrotate(m, HEAD_C))}>
+            <rect x={-hatchR} y={-hatchR} width={2 * hatchR} height={2 * hatchR} fill={`url(#${H}-hatch)`} />
+          </g>
+        </g>
         {/* Light from below: ember while the cracks are open, warm gold after. */}
         {ember > 0 ? (
           <>

@@ -5,7 +5,7 @@ import { BOTS, STAGE_Y } from '../geometry';
 import { Canvas } from '../stage/Camera';
 import { LightPool, StageLine } from '../stage/Stage';
 import { Grain, Vignette } from '../stage/Grain';
-import { DiabloHead, eyeCentres, Mark } from '../cast/Diablo';
+import { DiabloHead, eyeCentres, Mark, type DiabloEyeState } from '../cast/Diablo';
 import { clawTips, Hand, handBounds } from '../cast/Hands';
 import { Tail, tailTips } from '../cast/Tail';
 import type { HandProps, HeadProps, TailRing } from '../cast/types';
@@ -17,6 +17,7 @@ import type { Pt } from '../lib/anim';
 // 200 ring half swept                              250 ring closed with gold edge
 // 300 silhouettes on cream                         350 the mark   360 the mark mid-blink
 // 400 claw-tip check at several poses (large)   450 rising head, flipped scythe, ring at 0.93
+// 500 eye states: open / narrow 0.5 / narrow 1 (pleased) / glare 1 (menacing)
 
 // Faint outlines where the bots will stand.
 const BotGhosts: React.FC = () => (
@@ -58,8 +59,8 @@ const hover = (frame: number): [HandProps, HandProps] => [
 ];
 
 const strike = (): [HandProps, HandProps] => [
-  { side: 'left', x: 262, y: 760, rot: 0, spread: 0.55, curl: 1 },
-  { side: 'right', x: 806, y: 770, rot: 0, spread: 0.55, curl: 1 },
+  { side: 'left', x: 262, y: 790, rot: 0, spread: 0.55, curl: 0.85 },
+  { side: 'right', x: 806, y: 790, rot: 0, spread: 0.55, curl: 0.85 },
 ];
 
 const ring = (progress: number, goldEdge: number): TailRing => ({ cx: 540, cy: 1188, rx: 380, ry: 92, progress, goldEdge, layer: 'back' });
@@ -91,7 +92,7 @@ export const DiabloSheet: React.FC = () => {
     const br = handBounds(r);
     body = (
       <Stage id="s2" ember={0.8}>
-        <DiabloHead {...settled} ember={0.8} eyes={{ open: 1, look: { x: -6, y: 6 } }} />
+        <DiabloHead {...settled} ember={0.8} eyes={{ open: 1, look: { x: -6, y: 6 }, glare: 0.8 } as DiabloEyeState} />
         <Hand {...l} ember={0.8} />
         <Hand {...r} ember={0.8} />
         {tips.map((t, i) => (
@@ -161,7 +162,7 @@ export const DiabloSheet: React.FC = () => {
         <line x1={540} x2={540} y1={400} y2={1000} stroke="#00E5FF" strokeOpacity={0.25} />
       </Canvas>
     );
-  } else if (frame >= 450) {
+  } else if (frame >= 450 && frame < 500) {
     // Misc: rising behind the stage line, a flipped scythe with 7½ seams, a ring about to close.
     const cres = { x: 250, y: 820, rot: 24, scale: 1.15, flip: true };
     const tt = tailTips(cres);
@@ -174,7 +175,33 @@ export const DiabloSheet: React.FC = () => {
         <Marker p={tt.upper} />
         <Marker p={tt.lower} />
         <Tail ring={{ ...r, layer: 'front' }} ember={0.6} />
+        {/* the shot 6 dive: a small scythe, rotated, its hatch still 1.5/7 px at 9° */}
+        <Tail crescent={{ x: 880, y: 760, rot: -70, scale: 0.45 }} seams={14} ember={0.6} />
       </Stage>
+    );
+  } else if (frame >= 500) {
+    // Eye states, 2 × 2: open, narrow 0.5, narrow 1 (pleased), glare 1 (menacing).
+    const cells: [number, number, DiabloEyeState][] = [
+      [-250, -420, { open: 1 }],
+      [250, -420, { open: 1, narrow: 0.5 }],
+      [-250, 420, { open: 1, narrow: 1 }],
+      [250, 420, { open: 1, glare: 1 }],
+    ];
+    body = (
+      <Canvas>
+        <rect width={1080} height={1920} fill={C.night} />
+        {cells.map(([dx, dy, eyes], i) => {
+          const head: HeadProps = { dx, dy, scale: 0.92, eyes, warm: 0.4 };
+          return (
+            <g key={i}>
+              <DiabloHead {...head} />
+              {eyeCentres(head).map((e, j) => (
+                <Marker key={j} p={e} r={2} />
+              ))}
+            </g>
+          );
+        })}
+      </Canvas>
     );
   } else {
     // Claw-tip check: several poses side by side, tips marked.

@@ -14,28 +14,32 @@ import React from 'react';
 import { C, HATCH } from '../theme';
 import { clamp, wobble, type Pt } from '../lib/anim';
 import type { HandPose, HandProps } from './types';
-import { ap, bbox, chain, invv, polyD, R, S, samplePath, stripD, stripHalfD, stripRimD, stripUnderD, svgM, T, type Mat, type Strip } from './diablo/geom';
+import { ap, bbox, chain, invv, polyD, R, S, samplePath, stripD, stripEdgeBandD, stripHalfD, stripRimD, stripUnderD, svgM, T, unrotate, type Mat, type Strip } from './diablo/geom';
 
 /* ───────────────────────────── the shapes ───────────────────────────── */
 
 // Hand-local frame (scale 1, px): origin at the palm centre, +y down the claws,
 // +x toward the inside (the screen centre for either hand). Drawn for the left
 // hand; the right hand mirrors it.
+// The back of the hand: a rounded shape, its wrist cut clean at the 9° slant,
+// swelling over the thumb's root on the inside and into a heel on the outside.
+// The fingers lie ON it (drawn over it from knuckles inside its lower half),
+// so its lower edge only shows as webbing between them.
 export const PALM_PATH =
-  'M-40 -126' +
-  'L42 -113' + // the wrist, cut clean at the reel's 9° slant
-  'C52 -111 58 -105 60 -97' +
-  'C66 -70 90 -40 100 -8' + // inner side flaring over the thumb's root
-  'C106 12 104 30 94 40' +
-  'C56 60 -58 60 -100 30' + // knuckle line
-  'C-118 4 -112 -34 -84 -68' + // outer side: the heel of the hand…
-  'C-66 -88 -56 -108 -52 -118' + // …narrowing to the wrist
-  'C-50 -123 -46 -126 -40 -126Z';
+  'M-40 -128' +
+  'L40 -115.3' + // the wrist, cut clean at the reel's 9° slant
+  'C50 -113 56 -107 58 -98' +
+  'C64 -72 86 -46 96 -20' + // inner side swelling over the thumb's root
+  'C102 0 98 22 82 34' +
+  'C52 54 -44 56 -82 34' + // the lower edge (webbing between the fingers)
+  'C-100 22 -106 -4 -98 -30' + // the heel
+  'C-88 -60 -66 -90 -56 -112' +
+  'C-52 -121 -47 -128 -40 -128Z';
 
 const PALM_POLY = samplePath(PALM_PATH, 10)[0];
 
 const N = 44; // samples along a finger + claw
-const FINGER_W = 38;
+const FINGER_W = 36;
 const CLAW_W = 34; // at the root: thick, like the mark's horns
 
 // Four digits. Each: knuckle, the short maroon knuckle sheath, claw length,
@@ -46,18 +50,41 @@ interface Digit {
   fLen: number;
   cLen: number;
   phi: number;
-  phiSpread: number;
+  phiSpread: number; // fan per unit of (spread − 0.5)·2
+  phiSpreadOpen?: number; // … used instead above spread 0.5, if set
   phiCurl: number;
   turn: number;
   turnCurl: number;
   w: number; // width multiplier
+  kCurl?: Pt; // knuckle offset at full curl
+  fShrink?: number; // foreshortening of the finger at full curl (default 0.3)
+  cShrink?: number; // … and of the claw (default 0.14)
+  cShrinkHi?: number; // extra claw foreshortening ∝ curl³ (only near a full strike curl)
 }
 const DIGITS: Digit[] = [
-  { k: { x: -64, y: 26 }, fLen: 58, cLen: 196, phi: -0.12, phiSpread: -0.22, phiCurl: -0.08, turn: 0.6, turnCurl: 1.3, w: 0.94 },
-  { k: { x: -6, y: 32 }, fLen: 62, cLen: 216, phi: 0.0, phiSpread: -0.04, phiCurl: 0.0, turn: 0.62, turnCurl: 0.95, w: 1 },
-  { k: { x: 50, y: 28 }, fLen: 58, cLen: 204, phi: 0.12, phiSpread: 0.16, phiCurl: 0.08, turn: 0.64, turnCurl: 0.6, w: 0.96 },
-  // The thumb: from the inner side, angled in, its claw hooking down.
-  { k: { x: 78, y: -26 }, fLen: 56, cLen: 156, phi: 0.86, phiSpread: 0.14, phiCurl: -0.3, turn: -0.66, turnCurl: -1.05, w: 0.92 },
+  // (the outer claw fans out less past spread 0.5, keeping a spread hand off the right rail)
+  { k: { x: -60, y: 2 }, fLen: 82, cLen: 196, phi: -0.12, phiSpread: -0.22, phiSpreadOpen: -0.15, phiCurl: 0, turn: 0.6, turnCurl: 1.3, w: 0.94, fShrink: 0.21 },
+  // (the longest claw foreshortens a little more near a full curl, so the four tips land level)
+  { k: { x: -6, y: 8 }, fLen: 86, cLen: 216, phi: 0.0, phiSpread: -0.04, phiCurl: 0.0, turn: 0.62, turnCurl: 0.95, w: 1, fShrink: 0.21, cShrinkHi: 0.1 },
+  { k: { x: 50, y: 4 }, fLen: 82, cLen: 204, phi: 0.12, phiSpread: 0.16, phiCurl: 0.08, turn: 0.64, turnCurl: 0.6, w: 0.96, fShrink: 0.21 },
+  // The thumb: from the inner side, angled in, its claw hooking back toward the
+  // fingers. Curling tucks its root down the palm and lets the claw reach out a
+  // touch, so at strike curl (0.8–1) its tip lands on the same shallow arc as
+  // the three finger tips, just inside the inner one.
+  {
+    k: { x: 78, y: -26 },
+    fLen: 56,
+    cLen: 200,
+    phi: 0.86,
+    phiSpread: 0.14,
+    phiCurl: -0.2,
+    turn: -0.66,
+    turnCurl: -0.55,
+    w: 0.92,
+    kCurl: { x: -6, y: 20 },
+    fShrink: 0.2,
+    cShrink: -0.05,
+  },
 ];
 
 /* ───────────────────────────── the pose ───────────────────────────── */
@@ -85,6 +112,7 @@ interface ClawGeo {
   iCut: number; // sample index of the cuticle (finger → claw)
   iGold: number; // sample index where the gold quarter starts
   tip: Pt;
+  backA: boolean; // edge A is the claw's convex back
 }
 export interface HandGeo {
   m: Mat;
@@ -102,12 +130,13 @@ export const handGeometry = (p: PoseIn): HandGeo => {
   const claws: ClawGeo[] = [];
   for (let i = 0; i < 4; i++) {
     const dg = DIGITS[i];
-    const K = { x: dg.k.x * (1 - 0.06 * curl), y: dg.k.y };
+    const K = { x: dg.k.x * (1 - 0.06 * curl) + (dg.kCurl?.x ?? 0) * curl, y: dg.k.y + (dg.kCurl?.y ?? 0) * curl };
     // The fan opens with the spread; a curled hand closes into a cage.
-    const phiK = dg.phi + dg.phiSpread * (spread - 0.5) * 2 + dg.phiCurl * curl;
+    const fan = spread > 0.5 ? dg.phiSpreadOpen ?? dg.phiSpread : dg.phiSpread;
+    const phiK = dg.phi + fan * (spread - 0.5) * 2 + dg.phiCurl * curl;
     // Curling bends the fingers forward (toward us): they foreshorten.
-    const fLen = dg.fLen * (1 - 0.3 * curl);
-    const cLen = dg.cLen * (1 - 0.14 * curl);
+    const fLen = dg.fLen * (1 - (dg.fShrink ?? 0.3) * curl);
+    const cLen = dg.cLen * (1 - (dg.cShrink ?? 0.14) * curl - (dg.cShrinkHi ?? 0) * curl * curl * curl);
     // Claw bend: the fingers sweep toward the inside like the crescent; hooked when curled.
     const turn = dg.turn * (1 - curl) + dg.turnCurl * curl;
     const fingerTurn = 0.05 * Math.sign(dg.turn);
@@ -157,7 +186,11 @@ export const handGeometry = (p: PoseIn): HandGeo => {
       NB.push({ x: -nx, y: -ny });
       W.push(w);
     }
-    claws.push({ strip: { a: A, b: B, na: NA, nb: NB, w: W }, iCut, iGold, tip: cs[N] });
+    // Which edge is the claw's convex back: the side its middle bows out to.
+    const iMid = Math.round((iCut + N) / 2);
+    const chordMid = { x: (cs[iCut].x + cs[N].x) / 2, y: (cs[iCut].y + cs[N].y) / 2 };
+    const bow = (cs[iMid].x - chordMid.x) * NA[iMid].x + (cs[iMid].y - chordMid.y) * NA[iMid].y;
+    claws.push({ strip: { a: A, b: B, na: NA, nb: NB, w: W }, iCut, iGold, tip: cs[N], backA: bow > 0 });
   }
   return { m, claws };
 };
@@ -178,39 +211,76 @@ export function handBounds(p: HandPose | HandProps): { x0: number; y0: number; x
 
 /* ───────────────────────────── drawing ───────────────────────────── */
 
-// The finger: the strip up to the cuticle, closed by a rounded arch the claw
-// emerges from.
+// The finger sheath: the strip up to the cuticle, ending in a clean slanted
+// cut (the wrist's language) that runs further down the claw's convex back,
+// like the skin over a raptor's claw, and curves in a little, crescent-like.
+const SHEATH_RUN = 4; // samples the sheath runs on down the claw's back
+const sheathEnds = (c: ClawGeo) => ({
+  ka: c.backA ? c.iCut + SHEATH_RUN : c.iCut - 1,
+  kb: c.backA ? c.iCut - 1 : c.iCut + SHEATH_RUN,
+});
 const fingerD = (c: ClawGeo) => {
   const st = c.strip;
+  const { ka, kb } = sheathEnds(c);
+  const a = st.a[ka];
+  const b = st.b[kb];
+  // The cut bows back toward the knuckle by a fifth of its length.
   const k = c.iCut;
-  const A = st.a.slice(0, k + 1);
-  const B = st.b.slice(0, k + 1);
-  const a = st.a[k];
-  const b = st.b[k];
-  const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-  const nxt = st.a[k + 1];
-  const nb = st.b[k + 1];
-  const tdir = { x: (nxt.x + nb.x) / 2 - mid.x, y: (nxt.y + nb.y) / 2 - mid.y };
-  const tl = Math.hypot(tdir.x, tdir.y) || 1;
-  const cap = st.w[k] * 0.3;
-  const arch: Pt[] = [];
-  for (let j = 1; j < 8; j++) {
-    const th = (j / 8) * Math.PI;
-    arch.push({
-      x: mid.x + (a.x - mid.x) * Math.cos(th) + (tdir.x / tl) * cap * Math.sin(th),
-      y: mid.y + (a.y - mid.y) * Math.cos(th) + (tdir.y / tl) * cap * Math.sin(th),
+  const back = { x: st.a[k - 2].x + st.b[k - 2].x - st.a[k].x - st.b[k].x, y: st.a[k - 2].y + st.b[k - 2].y - st.a[k].y - st.b[k].y };
+  const bl = Math.hypot(back.x, back.y) || 1;
+  const sag = Math.hypot(b.x - a.x, b.y - a.y) * 0.2;
+  const ctrl = { x: (a.x + b.x) / 2 + (back.x / bl) * sag, y: (a.y + b.y) / 2 + (back.y / bl) * sag };
+  const cut: Pt[] = [];
+  for (let j = 1; j < 6; j++) {
+    const t = j / 6;
+    cut.push({
+      x: (1 - t) * (1 - t) * a.x + 2 * t * (1 - t) * ctrl.x + t * t * b.x,
+      y: (1 - t) * (1 - t) * a.y + 2 * t * (1 - t) * ctrl.y + t * t * b.y,
     });
   }
-  return polyD([...A, ...arch, ...B.reverse()]);
+  return polyD([...st.a.slice(0, ka + 1), ...cut, ...st.b.slice(0, kb + 1).reverse(), ...knuckle(c).pts]);
 };
 
-const HandDefs: React.FC<{ id: string; mirror: boolean }> = ({ id, mirror }) => (
+// The rounded knuckle that closes the finger at its root (from edge B round
+// the back to edge A), with its outward normals for the rim.
+const knuckle = (c: ClawGeo) => {
+  const st = c.strip;
+  const a = st.a[0];
+  const b = st.b[0];
+  const ctr = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  const r = Math.hypot(a.x - b.x, a.y - b.y) / 2;
+  const fwd = { x: (st.a[2].x + st.b[2].x) / 2 - ctr.x, y: (st.a[2].y + st.b[2].y) / 2 - ctr.y };
+  const fl = Math.hypot(fwd.x, fwd.y) || 1;
+  const bk = { x: -fwd.x / fl, y: -fwd.y / fl };
+  const pts: Pt[] = [];
+  const nrm: Pt[] = [];
+  for (let j = 1; j < 12; j++) {
+    const th = (j / 12) * Math.PI;
+    const q = { x: ctr.x + (b.x - ctr.x) * Math.cos(th) + bk.x * r * Math.sin(th), y: ctr.y + (b.y - ctr.y) * Math.cos(th) + bk.y * r * Math.sin(th) };
+    pts.push(q);
+    nrm.push({ x: (q.x - ctr.x) / (r || 1), y: (q.y - ctr.y) / (r || 1) });
+  }
+  return { pts, nrm, r };
+};
+
+// The cream rim on the knuckle's upward-facing arc: a knuckle highlight.
+const knuckleRimD = (c: ClawGeo, t: number) => {
+  const { pts, nrm, r } = knuckle(c);
+  const inner = pts.map((q, j) => {
+    const th = Math.min(t * Math.max(0, -nrm[j].y), r * 0.3);
+    return { x: q.x - nrm[j].x * th, y: q.y - nrm[j].y * th };
+  });
+  return polyD([...pts, ...inner.reverse()]);
+};
+
+const HandDefs: React.FC<{ id: string }> = ({ id }) => (
   <defs>
     <clipPath id={`${id}-palm`}>
       <path d={PALM_PATH} />
     </clipPath>
-    {/* Hatching in the hand's local frame; the mirrored hand mirrors the lean back. */}
-    <pattern id={`${id}-hatch`} patternUnits="userSpaceOnUse" width={HATCH.gap} height={HATCH.gap} patternTransform={`rotate(${mirror ? -HATCH.angle : HATCH.angle})`}>
+    {/* Canvas-oriented palm hatch: used inside an unrotate() group, so it stays
+        1.5/7 px at 9° whatever the hand's rot, mirroring and scale. */}
+    <pattern id={`${id}-hatch`} patternUnits="userSpaceOnUse" width={HATCH.gap} height={HATCH.gap} patternTransform={`rotate(${HATCH.angle})`}>
       <line x1={HATCH.gap / 2} y1={-1} x2={HATCH.gap / 2} y2={HATCH.gap + 1} stroke={C.cream} strokeWidth={HATCH.width} />
     </pattern>
     {/* Claw shading lives in stage coordinates: maroon engraving on ivory. */}
@@ -218,8 +288,7 @@ const HandDefs: React.FC<{ id: string; mirror: boolean }> = ({ id, mirror }) => 
       <line x1={HATCH.gap / 2} y1={-1} x2={HATCH.gap / 2} y2={HATCH.gap + 1} stroke={C.maroon} strokeWidth={HATCH.width} />
     </pattern>
     {[
-      ['shade', 62],
-      ['under', 30],
+      ['shade', 56],
       ['lip', 3.5],
     ].map(([name, k]) => (
       <mask key={name} id={`${id}-${name}`} maskUnits="userSpaceOnUse" x={-200} y={-250} width={400} height={400}>
@@ -245,7 +314,7 @@ const Claw: React.FC<{ c: ClawGeo; id: string; ember: number; warm: number }> = 
     <g>
       <path d={stripD(st, from)} fill={C.cream} />
       <path d={stripD(st, c.iGold)} fill={C.gold} />
-      <path d={stripHalfD(st, shadeSide, 0.55, c.iCut, N - 3)} fill={`url(#${id}-claw-hatch)`} opacity={0.5} />
+      <path d={stripHalfD(st, shadeSide, 0.55, c.iCut, c.iGold)} fill={`url(#${id}-claw-hatch)`} opacity={0.5} />
       {ember > 0 ? (
         <>
           <path d={stripD(st, from)} fill={C.ember} opacity={0.12 * ember} />
@@ -258,19 +327,27 @@ const Claw: React.FC<{ c: ClawGeo; id: string; ember: number; warm: number }> = 
           <path d={stripUnderD(st, 3.5, 0.45, from)} fill={C.gold} opacity={0.85 * warm} />
         </>
       ) : null}
-      <path d={stripRimD(st, 3, 0.45, from)} fill={C.cream} />
+      {/* The cream rim runs to the gold; on the gold it is a hairline, so the tip reads gold. */}
+      <path d={stripRimD(st, 3, 0.45, from, c.iGold)} fill={C.cream} />
+      <path d={stripRimD(st, 1.25, 0.2, c.iGold)} fill={C.cream} />
+      <path d={polyD([st.a[c.iGold], st.b[c.iGold]], false)} stroke={C.night} strokeOpacity={0.55} strokeWidth={1.2} fill="none" />
     </g>
   );
 };
 
-const Finger: React.FC<{ c: ClawGeo; ember: number; warm: number }> = ({ c, ember, warm }) => (
-  <g>
-    <path d={fingerD(c)} fill={C.maroon} />
-    {ember > 0 ? <path d={stripUnderD(c.strip, 3.5, 0.3, 0, c.iCut)} fill={C.ember} opacity={0.85 * ember} /> : null}
-    {warm > 0 ? <path d={stripUnderD(c.strip, 3.5, 0.3, 0, c.iCut)} fill={C.gold} opacity={0.75 * warm} /> : null}
-    <path d={stripRimD(c.strip, 3, 0.3, 0, c.iCut)} fill={C.cream} />
-  </g>
-);
+const Finger: React.FC<{ c: ClawGeo; ember: number; warm: number }> = ({ c, ember, warm }) => {
+  const { ka, kb } = sheathEnds(c);
+  const band = (facing: 'up' | 'down', t: number) =>
+    stripEdgeBandD(c.strip, 'a', facing, t, 0.3, 0, ka) + stripEdgeBandD(c.strip, 'b', facing, t, 0.3, 0, kb);
+  return (
+    <g>
+      <path d={fingerD(c)} fill={C.maroon} />
+      {ember > 0 ? <path d={band('down', 3.5)} fill={C.ember} opacity={0.85 * ember} /> : null}
+      {warm > 0 ? <path d={band('down', 3.5)} fill={C.gold} opacity={0.75 * warm} /> : null}
+      <path d={band('up', 3) + knuckleRimD(c, 3)} fill={C.cream} />
+    </g>
+  );
+};
 
 export const Hand: React.FC<HandProps> = (p) => {
   const g = handGeometry(p);
@@ -280,49 +357,43 @@ export const Hand: React.FC<HandProps> = (p) => {
   if (p.silhouette) {
     return (
       <g fill={C.night}>
-        {g.claws.map((c, i) => (
-          <path key={i} d={stripD(c.strip)} />
-        ))}
         <path transform={svgM(g.m)} d={PALM_PATH} />
+        {g.claws.map((c, i) => (
+          <path key={i} d={fingerD(c) + stripD(c.strip, c.iCut - 2)} />
+        ))}
       </g>
     );
   }
   const rim = invv(g.m, { x: 0, y: 3 });
+  const hatchR = 280 * Math.abs(p.scale ?? 1); // canvas px round the palm centre: covers the palm
   const ko = 2.5 * 2; // a 2.5 px night keyline outside, so a hand reads over the head
   return (
     <g>
-      <HandDefs id={id} mirror={p.side === 'right'} />
-      <g fill={C.night} stroke={C.night} strokeWidth={ko} strokeLinejoin="round">
-        {g.claws.map((c, i) => (
-          <path key={i} d={stripD(c.strip)} />
-        ))}
-        <path transform={svgM(g.m)} d={PALM_PATH} strokeWidth={ko / Math.abs(p.scale ?? 1)} />
-      </g>
-      {g.claws.map((c, i) => (
-        <Claw key={i} c={c} id={id} ember={ember} warm={warm} />
-      ))}
-      {g.claws.map((c, i) => (
-        <Finger key={i} c={c} ember={ember} warm={warm} />
-      ))}
+      <HandDefs id={id} />
+      {/* the palm, under the fingers, with a night keyline so it reads over the head */}
+      <path transform={svgM(g.m)} d={PALM_PATH} fill={C.night} stroke={C.night} strokeWidth={ko / Math.abs(p.scale ?? 1)} strokeLinejoin="round" />
       <g transform={svgM(g.m)}>
         <path d={PALM_PATH} fill={C.cream} />
         <g clipPath={`url(#${id}-palm)`}>
           <path d={PALM_PATH} fill={C.maroon} transform={`translate(${rim.x} ${rim.y})`} />
-          <rect x={-200} y={-250} width={400} height={400} fill={`url(#${id}-hatch)`} opacity={0.18} mask={`url(#${id}-shade)`} />
-          {ember > 0 ? (
-            <>
-              <rect x={-200} y={-250} width={400} height={400} fill={C.ember} opacity={0.2 * ember} mask={`url(#${id}-under)`} />
-              <rect x={-200} y={-250} width={400} height={400} fill={C.ember} opacity={0.85 * ember} mask={`url(#${id}-lip)`} />
-            </>
-          ) : null}
-          {warm > 0 ? (
-            <>
-              <rect x={-200} y={-250} width={400} height={400} fill={C.gold} opacity={0.14 * warm} mask={`url(#${id}-under)`} />
-              <rect x={-200} y={-250} width={400} height={400} fill={C.gold} opacity={0.75 * warm} mask={`url(#${id}-lip)`} />
-            </>
-          ) : null}
+          <g mask={`url(#${id}-shade)`} opacity={0.18}>
+            <g transform={svgM(unrotate(g.m, { x: 0, y: 0 }))}>
+              <rect x={-hatchR} y={-hatchR} width={2 * hatchR} height={2 * hatchR} fill={`url(#${id}-hatch)`} />
+            </g>
+          </g>
+          {/* Light from below: only a lip on the lower edges (no broad band). */}
+          {ember > 0 ? <rect x={-200} y={-250} width={400} height={400} fill={C.ember} opacity={0.85 * ember} mask={`url(#${id}-lip)`} /> : null}
+          {warm > 0 ? <rect x={-200} y={-250} width={400} height={400} fill={C.gold} opacity={0.75 * warm} mask={`url(#${id}-lip)`} /> : null}
         </g>
       </g>
+      {/* the digits lie on the back of the hand: keyline, claw, then the finger sheath */}
+      {g.claws.map((c, i) => (
+        <g key={i}>
+          <path d={fingerD(c) + stripD(c.strip, c.iCut - 2)} fill={C.night} stroke={C.night} strokeWidth={ko} strokeLinejoin="round" />
+          <Claw c={c} id={id} ember={ember} warm={warm} />
+          <Finger c={c} ember={ember} warm={warm} />
+        </g>
+      ))}
     </g>
   );
 };

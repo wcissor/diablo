@@ -45,6 +45,15 @@ export const invv = (m: Mat, v: Pt): Pt => {
 
 export const svgM = (m: Mat) => `matrix(${m.map((v) => +v.toFixed(5)).join(' ')})`;
 
+// For a group drawn inside transform `m`: a transform that undoes m's rotation,
+// mirroring and scale about the local point `at`. Inside it, units are canvas
+// px in canvas orientation (origin at `at`), so a stage-oriented hatch pattern
+// stays 1.5 px / 7 px / 9° on the canvas however the part is posed.
+export const unrotate = (m: Mat, at: Pt): Mat => {
+  const det = m[0] * m[3] - m[1] * m[2];
+  return [m[3] / det, -m[1] / det, -m[2] / det, m[0] / det, at.x, at.y];
+};
+
 // Mean linear scale of a matrix (for keeping strokes in canvas px).
 export const scaleOf = (m: Mat) => Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2]));
 
@@ -209,6 +218,30 @@ export const stripUnderD = (s: Strip, t = 3, maxFrac = 0.42, from = 0, to = s.a.
     return polyD([...outer, ...inner.reverse()]);
   };
   return side(s.a, s.na) + side(s.b, s.nb);
+};
+
+// One edge's band (rim on up-facing parts, or light on down-facing parts),
+// for edges that need their own sample range.
+export const stripEdgeBandD = (
+  s: Strip,
+  which: 'a' | 'b',
+  facing: 'up' | 'down',
+  t: number,
+  maxFrac: number,
+  from: number,
+  to: number,
+): string => {
+  const E = which === 'a' ? s.a : s.b;
+  const N = which === 'a' ? s.na : s.nb;
+  const outer: Pt[] = [];
+  const inner: Pt[] = [];
+  for (let i = Math.max(0, from); i <= Math.min(E.length - 1, to); i++) {
+    const k = facing === 'up' ? Math.max(0, -N[i].y) : Math.max(0, N[i].y);
+    const th = Math.min(t * k, s.w[i] * maxFrac);
+    outer.push(E[i]);
+    inner.push({ x: E[i].x - N[i].x * th, y: E[i].y - N[i].y * th });
+  }
+  return outer.length > 1 ? polyD([...outer, ...inner.reverse()]) : '';
 };
 
 // Outline of a strip between samples [from, to], closed (A forward, B back).

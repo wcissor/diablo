@@ -5,7 +5,9 @@
   "description": "Diablo, AI that evolves AI: 20-second vertical intro reel (Remotion)",
   "scripts": {
     "studio": "remotion studio src/index.ts",
-    "still": "remotion still src/index.ts IntroReel",
+    "render": "scripts/render.sh",
+    "qa": "npx tsx scripts/check-layout.ts && python3 scripts/qa/run_gates.py",
+    "stills": "tsx scripts/stills.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
