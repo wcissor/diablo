@@ -94,10 +94,11 @@ export const Scene: React.FC<{ s: SceneState; id: string }> = ({ s, id }) => {
       {(s.sparks ?? []).map((sp, i) => (
         <g key={`spark-${i}`}>
           {sp.trail.map((p, k) => (
-            <circle key={k} cx={p.x} cy={p.y} r={6.5 * (1 - (k + 1) / (sp.trail.length + 1))} fill={C.gold} opacity={0.75 * (1 - k / sp.trail.length)} />
+            <circle key={k} cx={p.x} cy={p.y} r={10 * (1 - (k + 1) / (sp.trail.length + 1))} fill={C.gold} opacity={0.8 * (1 - k / sp.trail.length)} />
           ))}
-          <circle cx={sp.at.x} cy={sp.at.y} r={7.5} fill={C.gold} />
-          <circle cx={sp.at.x - 1} cy={sp.at.y - 1.2} r={3} fill={C.cream} />
+          <circle cx={sp.at.x} cy={sp.at.y} r={22} fill={C.gold} opacity={0.18} />
+          <circle cx={sp.at.x} cy={sp.at.y} r={11} fill={C.gold} />
+          <circle cx={sp.at.x - 1.5} cy={sp.at.y - 1.8} r={4.5} fill={C.cream} />
         </g>
       ))}
       {s.dim ? <rect x={-400} y={-400} width={1880} height={2720} fill={C.night} opacity={s.dim} /> : null}

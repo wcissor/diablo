@@ -45,13 +45,11 @@ export const EndCardContent: React.FC = () => {
   const { from: b0, to: b1 } = EVENTS.blink;
   const blink = frame < b0 || frame > b1 ? 0 : Math.sin(invLerp(b0, b1, frame) * Math.PI);
   const appear = easeOutCubic(invLerp(EVENTS.wipe.from + 2, EVENTS.wipe.to + 6, frame));
-  // the brand's sign last: one gold seam draws across his crescent
-  const seam = easeOutCubic(invLerp(EVENTS.markSeam.from, EVENTS.markSeam.to, frame));
   return (
     <AbsoluteFill style={{ backgroundColor: C.night }}>
       <svg width={1080} height={1920} viewBox="0 0 1080 1920" style={{ position: 'absolute', inset: 0 }}>
         <LightPool id="end" cx={540} cy={760} rx={460} ry={560} level={0.55 * appear} />
-        <Mark blink={blink} opacity={appear} scale={0.97 + 0.03 * appear} seam={seam} />
+        <Mark blink={blink} opacity={appear} scale={0.97 + 0.03 * appear} />
       </svg>
       <Line text={END_CARD.name} inFrame={END_CARD.nameIn} baseline={1040} size={TYPE.endName.size} font={FONT.serif} weight={FONT.serifWeight} color={C.cream} />
       <Line text={END_CARD.url} inFrame={END_CARD.urlIn} baseline={1110} size={TYPE.url.size} font={FONT.mono} weight={FONT.monoWeight} color={C.gold} tracking="0.02em" />

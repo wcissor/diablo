@@ -22,13 +22,14 @@ export const LightPool: React.FC<{
   warm?: number;
   ember?: number;
 }> = ({ id, cx = 540, cy = 1130, rx = 560, ry = 300, level = 1, warm = 0, ember = 0 }) => {
-  const centre = mix(mix(C.night, C.poolCentre, level), '#3A1A0E', warm * level);
+  const centre = mix(mix(C.night, C.poolCentre, level), mix(C.poolCentre, C.gold, 0.12), warm * level);
   return (
     <g>
       <defs>
         <radialGradient id={`${id}-pool`} cx={cx} cy={cy} r={rx} gradientUnits="userSpaceOnUse" gradientTransform={`translate(${cx} ${cy}) scale(1 ${ry / rx}) translate(${-cx} ${-cy})`}>
           <stop offset="0" stopColor={centre} />
-          <stop offset="0.55" stopColor={mix(C.night, centre, 0.55)} stopOpacity={0.85} />
+          <stop offset="0.45" stopColor={mix(C.night, centre, 0.6)} stopOpacity={0.8} />
+          <stop offset="0.75" stopColor={mix(C.night, centre, 0.3)} stopOpacity={0.35} />
           <stop offset="1" stopColor={C.night} stopOpacity={0} />
         </radialGradient>
         <radialGradient id={`${id}-ember`} cx={cx} cy={cy + 20} r={rx * 0.8} gradientUnits="userSpaceOnUse" gradientTransform={`translate(${cx} ${cy + 20}) scale(1 ${(ry / rx) * 0.8}) translate(${-cx} ${-(cy + 20)})`}>

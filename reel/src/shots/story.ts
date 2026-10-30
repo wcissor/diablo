@@ -25,11 +25,11 @@ export const STRIKE_RIGHT: HandPose = { side: 'right', x: 821.78, y: 770.32, rot
 export const CUBE_TAP: Pt = { x: BOTS.cube.cx + 86, y: 1150 };
 
 // Hover poses (shot 2 end, shot 3 start): high on either side, clear of his horns (no words yet).
-export const HOVER_LEFT: HandPose = { side: 'left', x: STRIKE_LEFT.x - 15, y: STRIKE_LEFT.y - 240, rot: 10, spread: 0.8, curl: 0.1 };
-export const HOVER_RIGHT: HandPose = { side: 'right', x: STRIKE_RIGHT.x - 10, y: STRIKE_RIGHT.y - 240, rot: -10, spread: 0.8, curl: 0.1 };
+export const HOVER_LEFT: HandPose = { side: 'left', x: STRIKE_LEFT.x - 12, y: STRIKE_LEFT.y - 205, rot: 12, spread: 0.8, curl: 0.1 };
+export const HOVER_RIGHT: HandPose = { side: 'right', x: STRIKE_RIGHT.x - 14, y: STRIKE_RIGHT.y - 205, rot: -12, spread: 0.8, curl: 0.1 };
 
 // The tail rests behind Diablo's left side (shots 2 and 6).
-export const TAIL_REST: TailCrescentPose = { x: 250, y: 880, rot: 10, scale: 1.0 };
+export const TAIL_REST: TailCrescentPose = { x: 318, y: 940, rot: 22, scale: 0.9 }; // tucked behind his lower left, clear of the hovering hand
 const aimTail = (pose: TailCrescentPose, target: Pt): TailCrescentPose => {
   const tip = tailTips(pose).lower;
   return { ...pose, x: pose.x + target.x - tip.x, y: pose.y + target.y - tip.y };
@@ -50,11 +50,11 @@ const memo = <T,>(f: () => T) => {
 
 export const strikeCracks = memo(
   (): Record<BotKind, CrackSet> => ({
-    // 8 each (mains and their forks); they close on the 13 seam chimes after the trace.
+    // 6 each (mains and their forks): fewer, longer, calmer seams; they close on the 13 chimes after the trace.
     // maxMove: a claw that misses free shell fails the render instead of cracking elsewhere
-    bubble: makeCracks('bubble', clawTips(STRIKE_LEFT), 'strike-bubble', 8, { maxMove: 2 }),
-    cube: makeCracks('cube', [CUBE_TAP], 'strike-cube', 8, { maxMove: 2 }),
-    orb: makeCracks('orb', clawTips(STRIKE_RIGHT), 'strike-orb', 8, { maxMove: 2 }),
+    bubble: makeCracks('bubble', clawTips(STRIKE_LEFT), 'strike-bubble', 6, { maxMove: 2 }),
+    cube: makeCracks('cube', [CUBE_TAP], 'strike-cube', 6, { maxMove: 2 }),
+    orb: makeCracks('orb', clawTips(STRIKE_RIGHT), 'strike-orb', 6, { maxMove: 2 }),
   }),
 );
 

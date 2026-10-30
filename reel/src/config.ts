@@ -67,7 +67,6 @@ export const EVENTS = {
   ring: { from: 474, to: 504 }, // the tail sweeps round the bots and closes into a ring
   hop: 504,
   wipe: { from: 540, to: 548 }, // a 9° wipe to night
-  markSeam: { from: 552, to: 566 }, // one gold seam draws across the mark's crescent
   blink: { from: 570, to: 578 },
   slitClose: { from: 588, to: 597 }, // black by frame 597 and to the end
 };

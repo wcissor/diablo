@@ -58,8 +58,8 @@ const CAM: Record<number, { from: number; to: number; dy: number; head: number }
   1: { from: 1.0, to: 1.05, dy: 0, head: 1 }, // medium-wide, eye level
   2: { from: 0.9, to: 0.945, dy: 70, head: 1.12 }, // low angle, wider: horizon low, Diablo looms
   3: { from: 1.0, to: 1.05, dy: 34, head: 1.06 }, // the same angle, pushed in
-  4: { from: 1.0, to: 1.03, dy: 50, head: 1 }, // closer on the bots: they sit low, his eyes and hand above
-  5: { from: 0.95, to: 0.9975, dy: 6, head: 1 }, // medium
+  4: { from: 1.06, to: 1.08, dy: 30, head: 1 }, // closer: bots big and low, his eyes and hand above
+  5: { from: 0.92, to: 0.966, dy: -10, head: 1 }, // medium, from a little higher
   6: { from: 0.9, to: 0.857, dy: -8, head: 1 }, // wide, pulling back
 };
 const push = (f: number, id: number) => {
@@ -184,12 +184,12 @@ const splitSink = (hs: HandProps[], sinking: (h: HandProps) => boolean = (h) => 
 export const shot2 = (f: number): SceneState => {
   const c = cower(f);
   const r = rise(f);
-  const eyesAt = { x: 540, y: DIABLO_EYES.y + (1 - r) * RISE_FROM };
+  const eyesAt = { x: 540, y: DIABLO_EYES.y + (1 - r) * RISE_FROM - 36 };
   return {
     frame: f,
     camera: cam(f, 2),
     light: { level: 1, ry: LOW_RY },
-    head: { dy: (1 - r) * RISE_FROM, scale: CAM[2].head, eyes: { open: 1, look: { x: 0, y: 3 } }, clipBelowY: 1180 },
+    head: { dy: (1 - r) * RISE_FROM - 36, scale: CAM[2].head, eyes: { open: 1, look: { x: 0, y: 3 } }, clipBelowY: 1180 },
     tailBack: f >= EVENTS.tailSweep.from ? { crescent: tailSweep(f) } : undefined,
     // the hands rise from behind the stage line, behind the bots, and come to
     // the front only once they are clear above them (so the switch never shows)
@@ -247,14 +247,14 @@ const strikeHand = (f: number, side: 'left' | 'right', ember: number): HandProps
   if (f < w1) {
     // draw back 40 px (up and out) with an ease-in: anticipation
     const k = easeOutCubic(invLerp(w0, w1, f));
-    return { ...hover, x: hover.x + out * 12 * k, y: hover.y - 40 * k, curl: lerp(hover.curl ?? 0.1, 0.6, k), spread: lerp(hover.spread ?? 0.8, 0.7, k), tremble: 0, ember };
+    return { ...hover, x: hover.x + out * 4 * k, y: hover.y - 40 * k, curl: lerp(hover.curl ?? 0.1, 0.6, k), spread: lerp(hover.spread ?? 0.8, 0.7, k), tremble: 0, ember };
   }
   const kind: BotKind = side === 'left' ? 'bubble' : 'orb';
   const at = shellShift(kind, centroid(clawTips(hit)), strikeBotPose(Math.max(f, EVENTS.strike), kind), f);
   if (f < EVENTS.strike) {
     // the slam: one frame, very fast (motion-blurred)
     const k = easeInCubic(invLerp(w1, EVENTS.strike, f));
-    const from = { x: hover.x + out * 12, y: hover.y - 40 };
+    const from = { x: hover.x + out * 4, y: hover.y - 40 };
     return {
       ...hit,
       x: lerp(from.x, hit.x + at.x, k),
@@ -291,7 +291,7 @@ const strikeTail = (f: number) => {
   if (f < w1) return lerpPose(TAIL_COIL, drawn, easeOutCubic(invLerp(w0, w1, f)));
   if (f < EVENTS.strike) return lerpPose(drawn, TAIL_TAP, easeInCubic(invLerp(w1, EVENTS.strike, f)));
   const gone = { ...TAIL_COIL, y: TAIL_COIL.y + 560 };
-  return lerpPose(TAIL_TAP, gone, easeInCubic(clamp((s - 13) / 10)));
+  return lerpPose(TAIL_TAP, gone, easeInCubic(clamp((s - 5) / 8)));
 };
 
 // The weak spots in the order his eyes visit them.
@@ -333,7 +333,7 @@ export const shot3 = (f: number): SceneState => {
       ember,
     },
     // the tail strikes from in front of the stage, against the dark floor
-    tailFront: { crescent: strikeTail(f), ember, keyline: 0.5 },
+    tailFront: { crescent: strikeTail(f), ember: ember * 0.4, keyline: 0.5 },
     ...splitSink([strikeHand(f, 'left', ember), strikeHand(f, 'right', ember)]),
     bots: mapBots((k) => ({ ...strikeBotPose(f, k), cracks: struck ? [strikeState(f, k)] : undefined })),
     shards: struck
@@ -367,20 +367,30 @@ const fixBotPose = (f: number, k: BotKind): BotPose => {
   };
 };
 
-// One claw traces the bubble's longest crack, the hand side-on with the other
-// claws curled back, its palm up and away from the bubble's face.
-const TRACE_POSE = { side: 'left' as const, rot: -28, spread: 0.2, curl: 0.4, point: 1, pointClaw: 1, x: 0, y: 0 };
+// One claw traces the bubble's longest crack, side-on, the other claws curled back.
+const TRACE_BASE = { side: 'left' as const, spread: 0.2, curl: 0.4, point: 1, pointClaw: 1, x: 0, y: 0 };
+const traceTarget = (f: number) =>
+  botPoint('bubble', pointOnCrack(strikeCracks().bubble.cracks[strikeCracks().bubble.longest].d, traceU(f)), fixBotPose(f, 'bubble'), f);
+// The hand rolls as it traces (degrees at the start, middle and end of the
+// stroke), so the whole hand stays inside the safe area — it is touching a
+// bot — and clear of his eyes all the way along. Found by a search over the
+// traced crack with the layout checker's rules; re-check if the cracks change.
+const TRACE_ROLL: [number, number, number] = [-6, 2, 14];
+const traceRot = (u: number) =>
+  u < 0.5 ? lerp(TRACE_ROLL[0], TRACE_ROLL[1], u / 0.5) : lerp(TRACE_ROLL[1], TRACE_ROLL[2], (u - 0.5) / 0.5);
 const traceHand = (f: number): HandProps | undefined => {
-  const set = strikeCracks().bubble;
-  const crack = set.cracks[set.longest];
-  const tip0 = leadTip(TRACE_POSE);
-  const p = botPoint('bubble', pointOnCrack(crack.d, traceU(f)), fixBotPose(f, 'bubble'), f); // on the drawn shell
-  const away = easeInOutCubic(invLerp(EVENTS.trace.to + 2, EVENTS.trace.to + 22, f));
+  const rot = traceRot(traceU(f));
+  const base = { ...TRACE_BASE, rot };
+  const tip0 = leadTip(base);
+  const p = traceTarget(f); // on the drawn shell
+  // done: lift straight up off the shell first, then away to the left, below the words
+  const lift = easeOutCubic(invLerp(EVENTS.trace.to + 1, EVENTS.trace.to + 7, f));
+  const away = easeInOutCubic(invLerp(EVENTS.trace.to + 5, EVENTS.trace.to + 24, f));
   return {
-    ...TRACE_POSE,
-    x: p.x - tip0.x - away * 520,
-    y: p.y - tip0.y - away * 90,
-    rot: TRACE_POSE.rot + away * 10,
+    ...base,
+    x: p.x - tip0.x - away * 560,
+    y: p.y - tip0.y - lift * 26,
+    rot: rot + away * 8,
     warm: clamp(1 - emberLevel(f)) * 0.6,
     ember: emberLevel(f),
   };
@@ -406,15 +416,17 @@ export const shot4 = (f: number): SceneState => {
 
 const sealedState = (f: number, k: BotKind): CrackState => ({ ...strikeState(SHOTS[3].to, k), warm: 0, weak: 0, pulseFrame: f, pop: undefined });
 
-// The flicks: from its hover up right, the hand points one claw and flicks it
-// across each new crack, the bot's face clear; after the second it sinks away
-// behind the orb, so his pleased squint plays on a clean frame.
+// The flicks: the hand rises from behind the orb only for each flick, points
+// one claw, flicks it across the new crack with the bot's face clear, and
+// sinks away again — so the learning (the sparks) plays without his claws.
 const FLICK_HOVER = { side: 'right' as const, x: 810, y: 690, rot: -10, spread: 0.5, curl: 0.7 };
+const FLICK_DOWN = 660; // how far below the hover it hides (behind the orb and the stage)
 const flickHand = (f: number): HandProps => {
   const hover = FLICK_HOVER;
   const h = hairlines();
-  const k1 = invLerp(EVENTS.crack1.flick - 5, EVENTS.crack1.flick + EVENTS.crack1.sealFrames + 6, f);
-  const k2 = invLerp(EVENTS.crack2.at - 3, EVENTS.crack2.at + EVENTS.crack2.sealFrames + 4, f);
+  const { crack1: c1, crack2: c2 } = EVENTS;
+  const k1 = invLerp(c1.flick - 5, c1.flick + c1.sealFrames + 6, f);
+  const k2 = invLerp(c2.at - 3, c2.at + c2.sealFrames + 4, f);
   const visit = (k: number, target: Pt, rot: number) => {
     const t = Math.sin(clamp(k) * Math.PI); // out and back
     const base = { ...hover, rot, curl: 0.4, spread: 0.2, point: 1, pointClaw: 1, x: 0, y: 0 };
@@ -426,8 +438,11 @@ const flickHand = (f: number): HandProps => {
   const onShell = (k: BotKind, p: Pt) => botPoint(k, p, learnBotPose(f, k), f);
   if (k1 > 0 && k1 < 1) return { ...hover, ...visit(k1, onShell('orb', h.orb.cracks[0].points[0]), -24), tremble, warm: 0.5 };
   if (k2 > 0 && k2 < 1) return { ...hover, ...visit(k2, onShell('cube', h.cube.cracks[0].points[0]), 24), tremble, warm: 0.5 };
-  const sink = easeInCubic(invLerp(EVENTS.crack2.at + 10, EVENTS.eyesNarrow + 4, f)) * 640;
-  return { ...hover, y: hover.y + sink, tremble, warm: 0.5 };
+  // up from behind the orb before each flick, down again after
+  const up1 = easeOutCubic(invLerp(c1.at - 6, c1.flick - 5, f)) * (1 - easeInCubic(invLerp(c1.flick + c1.sealFrames + 6, c1.flick + 22, f)));
+  const up2 = easeOutCubic(invLerp(c2.at - 12, c2.at - 3, f)) * (1 - easeInCubic(invLerp(c2.at + c2.sealFrames + 4, EVENTS.eyesNarrow + 2, f)));
+  const up = f < c2.at - 12 ? up1 : up2;
+  return { ...hover, y: hover.y + (1 - up) * FLICK_DOWN, tremble, warm: 0.5 };
 };
 
 const hairState = (f: number, which: 'orb' | 'cube'): CrackState | undefined => {
@@ -500,7 +515,7 @@ const learnSparks = (f: number): Spark[] => {
       return { x: (1 - v) * (1 - v) * a.x + 2 * (1 - v) * v * c.x + v * v * b.x, y: (1 - v) * (1 - v) * a.y + 2 * (1 - v) * v * c.y + v * v * b.y };
     };
     const u = easeInOutCubic((f - depart) / travel);
-    out.push({ at: at(u), trail: [1, 2, 3, 4, 5].map((k) => at(u - 0.05 * k)) });
+    out.push({ at: at(u), trail: [1, 2, 3, 4, 5, 6, 7, 8].map((k) => at(u - 0.045 * k)) });
   }
   return out;
 };
@@ -520,7 +535,7 @@ export const shot5 = (f: number): SceneState => {
     light: { level: 1, warm: 0.7 },
     head: { eyes: { open: 1, look, narrow }, warm: 0.6 },
     tailFront: { crescent: learnTail(f), seams: tailSeamsAt(f), warm: 0.5, keyline: 0.35 },
-    ...splitSink([flickHand(f)]),
+    ...splitSink([flickHand(f)], () => true),
     sparks: learnSparks(f),
     bots: mapBots((k) => {
       const crack1 = k === 'orb' ? hairState(f, 'orb') : undefined;

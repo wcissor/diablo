@@ -104,12 +104,19 @@ for (let f = 0; f < DURATION; f++) {
   }
   // Diablo's eyes inside the core safe area.
   for (const e of eyes.map(C)) if (!inSafe(e)) flag('safe-eyes', 'eyes', f, Math.max(SAFE.x0 - e.x, e.x - SAFE.x1, SAFE.y0 - e.y, e.y - SAFE.y1));
-  // Claws touching a bot: inside x 120–936 (and the safe area).
+  // Claws touching a bot: inside x 120–936 (and the safe area) — and, per the
+  // brief's section 4, the whole hand stays inside x 120–936 while it touches.
   for (const h of s.hands ?? []) {
+    let touching = false;
     for (const tip of clawTips(h)) {
       if (!KINDS.some((k) => near(tip, botBoxes[k]))) continue;
+      touching = true;
       const t = C(tip);
       flag('safe-claws', `hand-${h.side}`, f, Math.max(SAFE.x0 - t.x, t.x - SAFE.x1, SAFE.y0 - t.y, t.y - SAFE.y1));
+    }
+    if (touching) {
+      const b = boxOf(corners(handBounds(h)).map(C));
+      flag('safe-hand-touching', `hand-${h.side}`, f, Math.max(SAFE.x0 - b.x0, b.x1 - SAFE.x1));
     }
   }
   // His eyes do the acting: no hand over them (a quality check, not a gate),
