@@ -1,17 +1,21 @@
 // Strike cracks and hairlines: seeded random walks with forks across a bot's
 // shell, in stage coordinates at the neutral pose. Pure and deterministic.
 
+import { getLength } from '@remotion/paths';
 import { BOTS, type BotKind } from '../../geometry';
 import { rnd, type Pt } from '../../lib/anim';
 import type { Crack, CrackSet } from '../types';
-import { DEG, dist, insideDepth, pointAlong, polyD, polyLength } from './geom';
-import { BUBBLE, CUBE, ORB, shellCentreLocal, shellLocal, toStage } from './shapes';
+import { DEG, curveAt, dist, insideDepth, pointAlong, polyLength, smoothCurve, type Curve } from './geom';
+import { BUBBLE, CUBE, ORB, ringPt, shellCentreLocal, shellLocal, toStage } from './shapes';
 
 // Extra fields the bots add to the contracts (all optional for readers).
 export interface BotCrack extends Crack {
   rootDist: number; // px along the network from the impact to this crack's root
   parent: number; // index of the crack it forks from (−1 for a main crack)
   main: boolean;
+  parentT: number; // 0..1 where along its parent (by length) a fork leaves it (0 for a main)
+  dense: Pt[]; // samples ≈ 1 px apart along d (root first)
+  cum: number[]; // arc length at each sample
 }
 export interface WeakLink {
   i: number; // crack index
@@ -63,13 +67,39 @@ const inAvoid = (kind: BotKind, p: Pt) => {
 
 const okAt = (kind: BotKind, p: Pt, margin: number) => insideDepth(p, shellStage(kind)) >= margin && !inAvoid(kind, p);
 
-// Weak spots keep further off the face, so they never read as cheeks.
-const faceClear = (kind: BotKind, p: Pt) => {
+// Weak spots keep well off the face (never cheek positions): at least this far
+// from every eye centre.
+export const WEAK_EYE_CLEAR = 75;
+const eyeCentres = (kind: BotKind): Pt[] => {
+  const a = BOTS[kind];
+  const local = kind === 'bubble' ? BUBBLE.eyes : kind === 'cube' ? CUBE.eyes : [ORB.eye];
+  return local.map((e) => ({ x: e.x + a.cx, y: e.y + a.feetY }));
+};
+export const eyeClearance = (kind: BotKind, p: Pt) => Math.min(...eyeCentres(kind).map((e) => dist(e, p)));
+
+// The orb's front ring band, which would hide part of an opening (local points).
+const ringFront = (() => {
+  const pts: Pt[] = [];
+  for (let i = 0; i <= 60; i++) pts.push(ringPt((i / 60) * Math.PI));
+  return pts;
+})();
+
+// Room for a weak spot of radius r at p (stage coordinates): inside the shell,
+// clear of the eyes, the cube's screen and antenna, and the orb's front ring.
+const weakRoom = (kind: BotKind, p: Pt, r: number, depthK: number, eyeMin: number) => {
+  if (insideDepth(p, shellStage(kind)) < r * depthK) return false;
+  if (eyeClearance(kind, p) < eyeMin) return false;
   const a = BOTS[kind];
   const x = p.x - a.cx;
   const y = p.y - a.feetY;
-  if (kind === 'bubble') return BUBBLE.eyes.every((e) => ((x - e.x) / 62) ** 2 + ((y - e.y) / 58) ** 2 >= 1);
-  if (kind === 'orb') return Math.hypot(x - ORB.eye.x, y - ORB.eye.y) >= ORB.eyeR + 38;
+  if (kind === 'cube') {
+    const m = r * 0.75 + 5;
+    const dx = Math.max(-72 - x, 0, x - 72);
+    const dy = Math.max(-170 - y, 0, y + 48);
+    if (Math.hypot(dx, dy) < m) return false;
+    if (Math.hypot(x - CUBE.antennaBase.x, y - CUBE.antennaBase.y) < r + 12) return false;
+  }
+  if (kind === 'orb' && ringFront.some((q) => Math.hypot(q.x - x, q.y - y) < r * 0.75 + 5)) return false;
   return true;
 };
 
@@ -191,23 +221,71 @@ const walk = (kind: BotKind, start: Pt, heading: number, maxLen: number, R: () =
   return pts;
 };
 
-const toCrack = (points: Pt[], rootDist: number, parent: number, main: boolean): BotCrack => ({
-  d: polyD(points, false),
-  length: polyLength(points),
-  points,
-  rootDist,
-  parent,
-  main,
-});
+// A slight seeded wobble: a midpoint nudged sideways on every longer step, so
+// the smooth curve through the points meanders a little (both ends kept).
+const wobbled = (points: Pt[], R: () => number, amp: number): Pt[] => {
+  if (amp <= 0 || points.length < 2) return points;
+  const out: Pt[] = [points[0]];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    const l = dist(a, b);
+    if (l > 9) {
+      const t = 0.42 + R() * 0.16;
+      const o = (R() - 0.5) * 2 * Math.min(amp, l * 0.09);
+      out.push({ x: a.x + (b.x - a.x) * t - ((b.y - a.y) / l) * o, y: a.y + (b.y - a.y) * t + ((b.x - a.x) / l) * o });
+    }
+    out.push(b);
+  }
+  return out;
+};
 
-// A jagged opening: alternating long and short radii (unit size).
-const blobPts = (R: () => number, n = 9): Pt[] => {
+// A crack (or a seam: the same path) as a smooth curve through its walk.
+// `length` is the SVG path's own length, so seal / trace fractions agree with
+// @remotion/paths everywhere.
+const toCrack = (walked: Pt[], rootDist: number, parent: number, main: boolean, R: () => number, amp = 2.2, parentT = 0): BotCrack => {
+  const points = wobbled(walked, R, amp);
+  const c: Curve = smoothCurve(points);
+  return {
+    d: c.d,
+    length: c.pts.length > 1 ? getLength(c.d) : 0,
+    points: points.map((p) => ({ x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100 })),
+    rootDist,
+    parent,
+    main,
+    parentT,
+    dense: c.pts,
+    cum: c.cum,
+  };
+};
+
+// The curve a crack is drawn on, for readers that get a hand-built Crack.
+const curveCache = new WeakMap<Crack, { pts: Pt[]; cum: number[] }>();
+export const crackCurve = (cr: Crack): { pts: Pt[]; cum: number[] } => {
+  const b = cr as Partial<BotCrack>;
+  if (b.dense && b.cum) return { pts: b.dense, cum: b.cum };
+  let c = curveCache.get(cr);
+  if (!c) {
+    c = smoothCurve(cr.points);
+    curveCache.set(cr, c);
+  }
+  return c;
+};
+// The point s px along a crack (by its path length) and the heading there.
+export const crackAt = (cr: Crack, s: number) => {
+  const c = crackCurve(cr);
+  const total = c.cum[c.cum.length - 1] || 1;
+  return curveAt(c, (s * total) / (cr.length || total));
+};
+
+// A jagged opening: alternating long and short radii (unit size), chipped.
+const blobPts = (R: () => number, n = 11): Pt[] => {
   const pts: Pt[] = [];
   const off = R() * Math.PI * 2;
   for (let i = 0; i < n; i++) {
-    const a = off + (i / n) * Math.PI * 2 + (R() - 0.5) * 0.35;
-    const r = (i % 2 ? 0.66 : 0.95) + R() * 0.28;
-    pts.push({ x: Math.cos(a) * r, y: Math.sin(a) * r * 0.9 });
+    const a = off + (i / n) * Math.PI * 2 + (R() - 0.5) * 0.4;
+    const r = (i % 2 ? 0.72 : 0.94) + R() * 0.2;
+    pts.push({ x: Math.cos(a) * r, y: Math.sin(a) * r * 0.92 });
   }
   return pts;
 };

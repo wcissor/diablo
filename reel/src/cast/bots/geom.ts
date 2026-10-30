@@ -155,3 +155,133 @@ export const bboxOf = (pts: Pt[]) => {
   }
   return { x0, y0, x1, y1 };
 };
+
+/* ───────────────────── smooth curves (cracks and seams) ───────────────────── */
+
+// A curve through a polyline: centripetal Catmull-Rom turned into cubic
+// Béziers (no loops or cusps however uneven the steps), with the SVG path,
+// dense samples along it (≈ 1 px apart) and their running arc length. The
+// samples come from the same rounded control points the path string holds, so
+// a point found here at arc length s is where getPointAtLength(d, s) lands.
+export interface Curve {
+  d: string;
+  pts: Pt[]; // dense samples, first = the polyline's first point
+  cum: number[]; // arc length at each sample
+  total: number; // arc length of the samples (≈ getLength(d))
+}
+
+const rr2 = (p: Pt): Pt => ({ x: r2(p.x), y: r2(p.y) });
+
+export const smoothCurve = (poly: Pt[]): Curve => {
+  const P = poly.map(rr2);
+  if (P.length < 2) return { d: `M${P[0].x} ${P[0].y}`, pts: [P[0]], cum: [0], total: 0 };
+  const n = P.length;
+  const at = (i: number): Pt => (i < 0 ? { x: 2 * P[0].x - P[1].x, y: 2 * P[0].y - P[1].y } : i >= n ? { x: 2 * P[n - 1].x - P[n - 2].x, y: 2 * P[n - 1].y - P[n - 2].y } : P[i]);
+  let d = `M${P[0].x} ${P[0].y}`;
+  const pts: Pt[] = [P[0]];
+  const cum: number[] = [0];
+  for (let i = 0; i < n - 1; i++) {
+    const p0 = at(i - 1);
+    const p1 = P[i];
+    const p2 = P[i + 1];
+    const p3 = at(i + 2);
+    const d1 = Math.max(1e-3, Math.sqrt(dist(p0, p1)));
+    const d2 = Math.max(1e-3, Math.sqrt(dist(p1, p2)));
+    const d3 = Math.max(1e-3, Math.sqrt(dist(p2, p3)));
+    const b1 = rr2({
+      x: (d1 * d1 * p2.x - d2 * d2 * p0.x + (2 * d1 * d1 + 3 * d1 * d2 + d2 * d2) * p1.x) / (3 * d1 * (d1 + d2)),
+      y: (d1 * d1 * p2.y - d2 * d2 * p0.y + (2 * d1 * d1 + 3 * d1 * d2 + d2 * d2) * p1.y) / (3 * d1 * (d1 + d2)),
+    });
+    const b2 = rr2({
+      x: (d3 * d3 * p1.x - d2 * d2 * p3.x + (2 * d3 * d3 + 3 * d3 * d2 + d2 * d2) * p2.x) / (3 * d3 * (d3 + d2)),
+      y: (d3 * d3 * p1.y - d2 * d2 * p3.y + (2 * d3 * d3 + 3 * d3 * d2 + d2 * d2) * p2.y) / (3 * d3 * (d3 + d2)),
+    });
+    d += `C${b1.x} ${b1.y} ${b2.x} ${b2.y} ${p2.x} ${p2.y}`;
+    const steps = Math.max(6, Math.ceil((dist(p1, b1) + dist(b1, b2) + dist(b2, p2)) / 0.8));
+    for (let k = 1; k <= steps; k++) {
+      const t = k / steps;
+      const u = 1 - t;
+      const q = {
+        x: u * u * u * p1.x + 3 * u * u * t * b1.x + 3 * u * t * t * b2.x + t * t * t * p2.x,
+        y: u * u * u * p1.y + 3 * u * u * t * b1.y + 3 * u * t * t * b2.y + t * t * t * p2.y,
+      };
+      cum.push(cum[cum.length - 1] + dist(pts[pts.length - 1], q));
+      pts.push(q);
+    }
+  }
+  return { d, pts, cum, total: cum[cum.length - 1] };
+};
+
+// The point s px along a sampled curve (clamped) and the heading there.
+export const curveAt = (c: { pts: Pt[]; cum: number[] }, s: number): { p: Pt; angle: number } => {
+  const { pts, cum } = c;
+  const n = pts.length;
+  if (n < 2) return { p: pts[0], angle: 0 };
+  const L = cum[n - 1];
+  const v = Math.max(0, Math.min(L, s));
+  let lo = 0;
+  let hi = n - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (cum[mid] <= v) lo = mid;
+    else hi = mid;
+  }
+  const seg = cum[hi] - cum[lo] || 1;
+  const t = (v - cum[lo]) / seg;
+  const a = pts[lo];
+  const b = pts[hi];
+  return { p: { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }, angle: Math.atan2(b.y - a.y, b.x - a.x) };
+};
+
+const f1 = (n: number) => (Math.round(n * 10) / 10).toString();
+
+// The outline of a band of varying half-width hw(s) along a sampled curve,
+// from arc length l0 to l1, with round ends: how cracks and seams get their
+// slight swell and taper (a stroke cannot vary its width).
+export const ribbonD = (c: { pts: Pt[]; cum: number[] }, l0: number, l1: number, hw: (s: number) => number, step = 3): string => {
+  const L = c.cum[c.cum.length - 1];
+  const a = Math.max(0, Math.min(L, l0));
+  const b = Math.max(0, Math.min(L, l1));
+  if (b - a < 0.2) return '';
+  const ss: number[] = [a];
+  for (let s = Math.ceil(a / step) * step; s < b; s += step) if (s > a + 0.3 && s < b - 0.3) ss.push(s);
+  ss.push(b);
+  const left: string[] = [];
+  const right: string[] = [];
+  let tEnd = { x: 1, y: 0 };
+  let tStart = { x: 1, y: 0 };
+  const P = ss.map((s, i) => {
+    const p = curveAt(c, s).p;
+    const q0 = curveAt(c, Math.max(0, s - 0.9)).p;
+    const q1 = curveAt(c, Math.min(L, s + 0.9)).p;
+    const tl = Math.hypot(q1.x - q0.x, q1.y - q0.y) || 1;
+    const t = { x: (q1.x - q0.x) / tl, y: (q1.y - q0.y) / tl };
+    if (i === 0) tStart = t;
+    tEnd = t;
+    const w = Math.max(0.05, hw(s));
+    left.push(`${f1(p.x - t.y * w)} ${f1(p.y + t.x * w)}`);
+    right.push(`${f1(p.x + t.y * w)} ${f1(p.y - t.x * w)}`);
+    return { p, w };
+  });
+  const cap = (p: Pt, t: Pt, w: number, sign: 1 | -1) => {
+    // from the left side round the end to the right side
+    const out: string[] = [];
+    for (let k = 1; k < 6; k++) {
+      const ang = (k / 6) * Math.PI;
+      const nx = -t.y * Math.cos(ang) + sign * t.x * Math.sin(ang);
+      const ny = t.x * Math.cos(ang) + sign * t.y * Math.sin(ang);
+      out.push(`${f1(p.x + nx * w * (sign === 1 ? 1 : 1))} ${f1(p.y + ny * w)}`);
+    }
+    return out;
+  };
+  const e = P[P.length - 1];
+  const s0 = P[0];
+  const capE = cap(e.p, tEnd, e.w, 1);
+  // the start cap runs from the right side round the back to the left side
+  const capS = cap(s0.p, { x: -tStart.x, y: -tStart.y }, s0.w, 1);
+  return `M${left.join('L')}L${capE.join('L')}L${right.reverse().join('L')}L${capS.join('L')}Z`;
+};
+
+// A slow seeded swell along a curve, −1..1 (for the width of cracks and seams).
+export const swell = (seed: number, s: number) =>
+  Math.sin(s * 0.11 + seed * 2.3) * 0.6 + Math.sin(s * 0.29 + seed * 5.1) * 0.4;

@@ -82,10 +82,10 @@ interface Digit {
 }
 const DIGITS: Digit[] = [
   // (the outer claw fans out less past spread 0.5, keeping a spread hand off the right rail)
-  { k: { x: -60, y: 2 }, fLen: 82, cLen: 196, phi: -0.12, phiSpread: -0.22, phiSpreadOpen: -0.15, phiCurl: 0, turn: 0.6, turnCurl: 1.3, w: 0.94, fShrink: 0.21, tuck: { phi: 0.08, turn: 2.8, f: 0.4, c: 0.38 } },
+  { k: { x: -60, y: 2 }, fLen: 82, cLen: 196, phi: -0.12, phiSpread: -0.22, phiSpreadOpen: -0.15, phiCurl: 0, turn: 0.6, turnCurl: 1.3, w: 0.94, fShrink: 0.21, tuck: { phi: -0.3, turn: 2.8, f: 0.4, c: 0.36 } },
   // (the longest claw foreshortens a little more near a full curl, so the four tips land level)
   { k: { x: -6, y: 8 }, fLen: 86, cLen: 216, phi: 0.0, phiSpread: -0.04, phiCurl: 0.0, turn: 0.62, turnCurl: 0.95, w: 1, fShrink: 0.21, cShrinkHi: 0.1, tuck: { phi: 0.04, turn: 2.8, f: 0.4, c: 0.36 } },
-  { k: { x: 50, y: 4 }, fLen: 82, cLen: 204, phi: 0.12, phiSpread: 0.16, phiCurl: 0.08, turn: 0.64, turnCurl: 0.6, w: 0.96, fShrink: 0.21, tuck: { phi: 0.1, turn: 2.8, f: 0.4, c: 0.38 } },
+  { k: { x: 50, y: 4 }, fLen: 82, cLen: 204, phi: 0.12, phiSpread: 0.16, phiCurl: 0.08, turn: 0.64, turnCurl: 0.6, w: 0.96, fShrink: 0.21, tuck: { phi: 0.3, turn: 2.8, f: 0.4, c: 0.36 } },
   // The thumb: from the inner side, angled in, its claw hooking back toward the
   // fingers. Curling tucks its root down the palm and lets the claw reach out a
   // touch, so at strike curl (0.8–1) its tip lands on the same shallow arc as
@@ -103,7 +103,7 @@ const DIGITS: Digit[] = [
     kCurl: { x: -6, y: 20 },
     fShrink: 0.2,
     cShrink: -0.05,
-    tuck: { phi: 0.7, turn: -2.8, f: 0.45, c: 0.4 },
+    tuck: { phi: 1.1, turn: -2.8, f: 0.45, c: 0.38, k: { x: -4, y: -12 } },
   },
 ];
 
