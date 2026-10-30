@@ -9,12 +9,19 @@ numbers; writes audio/build/verify.json.
                  last 0.1 s digital zero
   beats          onset detection on the score stem: a transient within 1 frame
                  of every BEATS time; every CUT within 3 frames of a beat and
-                 with a transient in the mix
-  strike         the loudest momentary loudness and the sample peak sit on the strike
+                 with a transient in the mix (with an external audio/score.mp3
+                 these two only WARN: its beats are its own, see beat-shift.json)
+  clicks         no sound cut off while ringing: synth's own tail check
+                 (mix-info.json cut_tails) and a click detector on the mix
+                 (energy above 8 kHz in 2 ms blocks, > 20x the local median,
+                 away from every intended transient)
+  strike         the loudest momentary loudness sits on the strike, full range
+                 and through a 200 Hz high-pass (a phone speaker); the sample
+                 peak sits on the strike
   voice          voice stem -16 LUFS ±1 and mix-vo TP when the voice exists
   captions       out/captions.srt matches config
 
-  python3 scripts/audio/verify.py [--strict]   (--strict: exit 1 on a failure)
+  python3 scripts/audio/verify.py [--strict]   (--strict: exit 1 on a FAIL; WARN never fails)
 """
 from __future__ import annotations
 
@@ -24,15 +31,67 @@ import subprocess
 import sys
 
 import numpy as np
+from scipy import ndimage, signal
 
 from dsp import (AUDIO_BUILD, REEL, SR, a2db, load_config, momentary_lufs, onset_envelope, pick_onsets,
                  read_wav)
+from synth import BLINK_REOPEN_FRAMES
 
-results: list[tuple[str, bool, str]] = []
+PHONE_HP_HZ = 200.0  # a phone speaker plays little below this
+CLICK_RATIO = 20.0   # an HF burst this many times the local median is a click...
+CLICK_TOL = 1.0      # ...unless within this many frames of an intended transient
+
+results: list[tuple[str, str, str]] = []
 
 
-def check(name: str, ok: bool, detail: str) -> None:
-    results.append((name, bool(ok), detail))
+def check(name: str, ok, detail: str, warn_only: bool = False) -> None:
+    results.append((name, 'PASS' if ok else ('WARN' if warn_only else 'FAIL'), detail))
+
+
+def intended_transients(cfg) -> tuple[list[float], list[tuple[float, float]]]:
+    """Frames where a sound is meant to start (BEATS, SFX, and the few effects
+    placed relative to an EVENT), and SFX ranges full of intended transients
+    (crackle, sizzle)."""
+    pts: list[float] = []
+    spans: list[tuple[float, float]] = []
+
+    def take(v):
+        if isinstance(v, dict) and 'from' in v and 'to' in v:
+            pts.extend([v['from'], v['to']])
+            return v['from'], v['to']
+        for x in (v if isinstance(v, list) else [v]):
+            pts.append(x)
+        return None
+
+    for v in cfg['BEATS'].values():
+        take(v)
+    for v in cfg['SFX'].values():
+        sp = take(v)
+        if sp:
+            spans.append(sp)
+    E, X = cfg['EVENTS'], cfg['SFX']
+    pts += [E['crack1']['at'], X['flick1'] + E['crack1']['sealFrames'], X['flick2'] + E['crack2']['sealFrames']]
+    pts += [f + BLINK_REOPEN_FRAMES for f in X['blinkTicks']]
+    return sorted(set(pts)), spans
+
+
+def hf_clicks(x: np.ndarray, fps: float, pts, spans):
+    """Energy above 8 kHz in 2 ms blocks against its median over ±50 ms;
+    returns [(frame, ratio, level dB, explained)] for every local peak over
+    CLICK_RATIO."""
+    hf = signal.sosfiltfilt(signal.butter(4, 8000, 'highpass', fs=SR, output='sos'), x, axis=0)
+    blk = int(0.002 * SR)
+    nb = hf.shape[0] // blk
+    e = (hf[:nb * blk] ** 2).reshape(nb, blk, -1).mean(axis=(1, 2))
+    med = ndimage.median_filter(e, size=51, mode='nearest')
+    ratio = e / (med + 1e-14)
+    peak = ndimage.maximum_filter1d(ratio, 5) == ratio
+    out = []
+    for i in np.flatnonzero(peak & (ratio > CLICK_RATIO) & (e > 1e-10)):
+        f = (i + 0.5) * blk / SR * fps
+        ok = any(abs(f - p) <= CLICK_TOL for p in pts) or any(a - CLICK_TOL <= f <= b + CLICK_TOL for a, b in spans)
+        out.append((round(float(f), 1), round(float(ratio[i]), 1), round(float(10 * np.log10(e[i])), 1), ok))
+    return out
 
 
 def ffprobe(path):
@@ -58,6 +117,9 @@ def main() -> int:
     B, X, E = cfg['BEATS'], cfg['SFX'], cfg['EVENTS']
     N, fps = cfg.n, cfg.fps
     report: dict = {}
+    info_path = AUDIO_BUILD / 'mix-info.json'
+    info = json.loads(info_path.read_text()) if info_path.exists() else {}
+    external = info.get('score_source', 'synth') != 'synth'
 
     names = ['score', 'sfx', 'mix-main'] + [n for n in ('voice', 'mix-vo') if (AUDIO_BUILD / f'{n}.wav').exists()]
     wav = {n: read_wav(AUDIO_BUILD / f'{n}.wav') for n in names}
@@ -116,7 +178,8 @@ def main() -> int:
     weakest = min(beat_rows, key=lambda r: r['strength_vs_local_median'])
     check('score transient on every BEATS time', all_ok,
           f"{sum(r['ok'] for r in beat_rows)}/{len(beat_rows)} within 1 frame; worst offset "
-          f"{worst['onset_offset_frames']:+.2f} f at {worst['frame']}; weakest x{weakest['strength_vs_local_median']} at {weakest['frame']}")
+          f"{worst['onset_offset_frames']:+.2f} f at {worst['frame']}; weakest x{weakest['strength_vs_local_median']} at {weakest['frame']}"
+          + (f" (external score {info['score_source']})" if external else ''), warn_only=external)
 
     beat_frames = sorted(b for g, v in B.items() if g != 'silence' for b in (v if isinstance(v, list) else [v]))
     mt, mf = onset_envelope(mix)
@@ -129,20 +192,41 @@ def main() -> int:
                          'ok': abs(nb - c) <= 3 and abs(no - (nb - c)) <= 1.0})
     report['cuts'] = cut_rows
     check('every cut within 3 frames of a beat', all(r['ok'] for r in cut_rows),
-          '; '.join(f"{r['cut']}: beat {r['beat_offset']:+d} f, mix onset {r['mix_onset_offset']:+.2f} f" for r in cut_rows))
+          '; '.join(f"{r['cut']}: beat {r['beat_offset']:+d} f, mix onset {r['mix_onset_offset']:+.2f} f" for r in cut_rows)
+          + (' (external score: move the cuts per beat-shift.json)' if external else ''), warn_only=external)
 
-    # the strike is the loudest moment
-    t, m = momentary_lufs(mix, 0.4, 0.02)
+    # clicks: nothing cut off while still ringing
+    tails = info.get('cut_tails', [])
+    check('no sound cut off while ringing (synth)', not tails,
+          'every sound decays below -60 dB re its peak before its buffer ends' if not tails else
+          '; '.join(f"{c['bus']} {c['label']} @{c['at_s']} s: {c['tail_db']} dB" for c in tails[:6]))
+    pts, spans = intended_transients(cfg)
+    clicks = hf_clicks(mix, fps, pts, spans)
+    bad = [c for c in clicks if not c[3]]
+    report['hf_clicks'] = {'intended': [c[:3] for c in clicks if c[3]], 'unexplained': [c[:3] for c in bad]}
+    check('no clicks in the main mix', not bad,
+          f'{len(clicks)} HF bursts > {CLICK_RATIO:g}x local median, all at intended transients' if not bad else
+          f'{len(bad)} unexplained HF bursts at frames ' + ', '.join(f'{c[0]} (x{c[1]:g}, {c[2]} dB)' for c in bad[:12]))
+
+    # the strike is the loudest moment, full range and on a phone
     hit = X['strikeHit']
-    near = (t * fps >= hit - 3) & (t * fps <= hit + 18)
-    loud_f = float(t[np.argmax(m)] * fps)
-    rest = float(m[~near].max())
     pk_f = float(np.argmax(np.max(np.abs(mix), axis=1)) / SR * fps)
-    check('strike is the loudest moment', near[np.argmax(m)] and hit - 1 <= pk_f <= hit + 12,
-          f'max momentary {m.max():.1f} LUFS at frame {loud_f:.0f} (elsewhere max {rest:.1f}, margin '
-          f'{m.max() - rest:.1f} LU); sample peak at frame {pk_f:.1f}')
-    report['strike'] = {'momentary_max_lufs': float(m.max()), 'at_frame': loud_f, 'elsewhere_max_lufs': rest,
-                        'sample_peak_frame': pk_f}
+    report['strike'] = {'sample_peak_frame': pk_f}
+    for label, hp in (('full range', 0.0), (f'{PHONE_HP_HZ:g} Hz high-pass (phone)', PHONE_HP_HZ)):
+        y = mix if not hp else signal.sosfilt(signal.butter(4, hp, 'highpass', fs=SR, output='sos'), mix, axis=0)
+        t, m = momentary_lufs(y, 0.4, 0.02)
+        near = (t * fps >= hit - 6) & (t * fps <= hit + 18)  # windows that hold the hit
+        loud_f = float(t[np.argmax(m)] * fps)
+        rest_i = np.flatnonzero(~near)[np.argmax(m[~near])]
+        rest, rest_f = float(m[rest_i]), float(t[rest_i] * fps)
+        ok = bool(near[np.argmax(m)]) and (hp or hit - 1 <= pk_f <= hit + 12)
+        check(f'strike is the loudest moment, {label}', ok,
+              f'max momentary {m.max():.1f} LUFS at frame {loud_f:.0f}; elsewhere max {rest:.1f} at frame '
+              f'{rest_f:.0f} (margin {m.max() - rest:.1f} LU)' + ('' if hp else f'; sample peak at frame {pk_f:.1f}'))
+        report['strike']['phone' if hp else 'full_range'] = {
+            'momentary_max_lufs': round(float(m.max()), 2), 'at_frame': round(loud_f, 1),
+            'elsewhere_max_lufs': round(rest, 2), 'elsewhere_at_frame': round(rest_f, 1),
+            'margin_lu': round(float(m.max()) - rest, 2)}
 
     # voice
     vs_path = AUDIO_BUILD / 'voice-status.json'
@@ -164,7 +248,7 @@ def main() -> int:
             check('voice line starts', all(abs(x) <= 0.2 for x in starts),
                   ', '.join(f'{x:+.2f} s' for x in starts))
         else:
-            check('voice', True, 'skipped: ' + '; '.join(f'{k}: {r}' for k, r in vs['reasons'].items()))
+            check('voice', True, 'skipped (voice cut not made): ' + '; '.join(f'{k}: {r}' for k, r in vs['reasons'].items()))
 
     # captions
     srt = REEL / 'out' / 'captions.srt'
@@ -176,11 +260,13 @@ def main() -> int:
         check('captions', lines == want, f'{len(blocks)} cues: ' + ' | '.join(lines))
 
     w = max(len(r[0]) for r in results)
-    for name, ok, detail in results:
-        print(f"{'PASS' if ok else 'FAIL'}  {name.ljust(w)}  {detail}")
-    report['checks'] = [{'check': n, 'pass': ok, 'detail': d} for n, ok, d in results]
-    report['pass'] = all(ok for _, ok, _ in results)
+    for name, status, detail in results:
+        print(f"{status}  {name.ljust(w)}  {detail}")
+    report['checks'] = [{'check': n, 'status': st, 'pass': st != 'FAIL', 'detail': d} for n, st, d in results]
+    report['pass'] = all(st != 'FAIL' for _, st, _ in results)
     (AUDIO_BUILD / 'verify.json').write_text(json.dumps(report, indent=2))
+    if not report['pass']:
+        print('verify: FAILED' + (' (strict: stopping the build)' if '--strict' in sys.argv else ''))
     return 1 if ('--strict' in sys.argv and not report['pass']) else 0
 
 

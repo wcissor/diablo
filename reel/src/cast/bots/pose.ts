@@ -42,8 +42,9 @@ export const resolvePose = (kind: BotKind, frame: number, p: BotPose): Resolved 
   const idle = p.freeze ? false : p.idle !== false;
   const squash = p.squash ?? 1;
   const w = clamp(p.tailWiggle ?? 0);
-  // One wag: two swings that die away, starting and ending at rest.
-  const tailAngle = w > 0 && w < 1 ? 16 * Math.sin(w * Math.PI * 4) * Math.pow(1 - w, 1.2) * smooth(Math.min(1, w * 6)) : 0;
+  // One wag: two swings that die away, starting and ending at rest. The swings
+  // stay on the upper side of rest, so the tip never dips through the stage line.
+  const tailAngle = w > 0 && w < 1 ? 8 * (1 - Math.cos(w * Math.PI * 4)) * Math.pow(1 - w, 1.2) * smooth(Math.min(1, w * 6)) : 0;
   return {
     look: { x: clamp(p.look?.x ?? 0, -1, 1), y: clamp(p.look?.y ?? 0, -1, 1) },
     fear: clamp(p.fear ?? 0),

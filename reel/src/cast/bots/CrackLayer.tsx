@@ -5,11 +5,17 @@
 import React from 'react';
 import { BOTS, type BotKind } from '../../geometry';
 import { C } from '../../theme';
+import { mix } from '../../stage/Stage';
 import { clamp, smooth } from '../../lib/anim';
 import type { CrackState } from '../types';
 import { crackRootDist, isHairline, setImpacts, setReach, weakAngle, weakLinks, weakPts } from './cracks';
 import { bboxOf, pointAlong, polyD } from './geom';
 import { shellLocal, toStage } from './shapes';
+
+// Tints of the palette's ember (no colour outside theme.ts).
+const EMBER_HOT = mix(C.ember, C.cream, 0.55);
+const EMBER_DEEP = mix(C.ember, C.night, 0.2);
+const EMBER_HEART = mix(C.ember, C.cream, 0.65);
 
 export const pulseOf = (pulseFrame: number) => 0.74 + 0.26 * Math.sin((2 * Math.PI * 1.2 * pulseFrame) / 30);
 
@@ -24,9 +30,9 @@ export const CrackDefs: React.FC<{ id: string }> = ({ id }) => (
       <stop offset="1" stopColor={C.ember} stopOpacity={0} />
     </radialGradient>
     <radialGradient id={`${id}-ember-core`} cx="0.45" cy="0.42" r="0.6">
-      <stop offset="0" stopColor="#F6A88C" />
+      <stop offset="0" stopColor={EMBER_HOT} />
       <stop offset="0.45" stopColor={C.ember} />
-      <stop offset="1" stopColor="#B9241E" />
+      <stop offset="1" stopColor={EMBER_DEEP} />
     </radialGradient>
     <radialGradient id={`${id}-warm`} cx="0.5" cy="0.42" r="0.62">
       <stop offset="0" stopColor={C.gold} stopOpacity={0.3} />
@@ -102,6 +108,7 @@ export const CrackLayer: React.FC<{ kind: BotKind; id: string; states: CrackStat
       if (vis <= 0.3) return;
       const dash = `${vis.toFixed(2)} ${(L + 60).toFixed(2)}`;
       const key = `${si}-${i}`;
+      const sealedLen = Math.min(clamp(s.seal[i] ?? 0) * L, vis);
       // Crack: porcelain-shade edges, night core; a thread of ember while open.
       // Mains are a little heavier near the impact (a taper in two steps).
       const main = !hair && (cr as { main?: boolean }).main !== false;
@@ -113,7 +120,10 @@ export const CrackLayer: React.FC<{ kind: BotKind; id: string; states: CrackStat
           {main ? <path d={cr.d} stroke={C.porcelainShade} strokeWidth={6.4} strokeDasharray={hdash} /> : null}
           <path d={cr.d} stroke={C.night} strokeWidth={hair ? 1.3 : 2} strokeDasharray={dash} />
           {main ? <path d={cr.d} stroke={C.night} strokeWidth={3.2} strokeDasharray={hdash} /> : null}
-          {!hair && weak > 0.01 ? <path d={cr.d} stroke={C.ember} strokeOpacity={weak * pulse * 0.55} strokeWidth={0.8} strokeDasharray={dash} /> : null}
+          {!hair && weak > 0.01 && sealedLen < vis - 0.3 ? (
+            // the ember thread shows only where the gold has not reached yet
+            <path d={cr.d} stroke={C.ember} strokeOpacity={weak * pulse * 0.55} strokeWidth={0.8} strokeDasharray={`0 ${sealedLen.toFixed(2)} ${(vis - sealedLen).toFixed(2)} ${(L + 60).toFixed(2)}`} />
+          ) : null}
           {flash > 0.01 ? <path d={cr.d} stroke={C.ember} strokeOpacity={flash} strokeWidth={3} strokeDasharray={dash} /> : null}
         </g>,
       );
@@ -186,8 +196,10 @@ export const CrackLayer: React.FC<{ kind: BotKind; id: string; states: CrackStat
       const pts = orient(weakPts(set, wi), weakAngle(set, wi));
       const r = w.r * (0.55 + 0.45 * open);
       const key = `${si}-w${wi}`;
-      if (weak > 0.01) {
-        lights.push(<circle key={`l-${key}`} cx={w.x} cy={w.y} r={w.r * 4.4} fill={`url(#${id}-ember-light)`} opacity={weak * pulse * open} />);
+      // Each spot's ember goes out as its own gold fills.
+      const spotWeak = weak * (1 - smooth(fill));
+      if (spotWeak > 0.01) {
+        lights.push(<circle key={`l-${key}`} cx={w.x} cy={w.y} r={w.r * 4.4} fill={`url(#${id}-ember-light)`} opacity={spotWeak * pulse * open} />);
       }
       // An opening: a chipped porcelain-shade rim, the dark inner wall, and the
       // ember glowing from deep inside (lower in the hole, hot at its heart).
@@ -195,10 +207,10 @@ export const CrackLayer: React.FC<{ kind: BotKind; id: string; states: CrackStat
         <g key={key}>
           <path d={rimPts(pts, w.x, w.y, r)} fill={C.porcelainShade} />
           <path d={scalePts(pts, w.x, w.y, r)} fill={C.night} />
-          {weak > 0.01 ? (
-            <g opacity={clamp(weak * (0.6 + 0.4 * pulse))}>
+          {spotWeak > 0.01 ? (
+            <g opacity={clamp(spotWeak * (0.6 + 0.4 * pulse))}>
               <path d={scalePts(pts, w.x + 0.3, w.y + r * 0.2, r * 0.84)} fill={`url(#${id}-ember-core)`} />
-              <path d={scalePts(pts, w.x + 0.3, w.y + r * 0.26, r * 0.34)} fill="#F7B49A" opacity={0.9} />
+              <path d={scalePts(pts, w.x + 0.3, w.y + r * 0.26, r * 0.34)} fill={EMBER_HEART} opacity={0.9} />
             </g>
           ) : null}
         </g>,

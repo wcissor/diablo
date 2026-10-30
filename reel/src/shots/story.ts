@@ -18,7 +18,7 @@ import { clamp, easeInOutCubic, easeOutCubic, invLerp, lerp } from '../lib/anim'
 // its eyes, on the orb inside the sphere and clear of its eye. Solved by
 // scripts/aim-strike.ts against the hand geometry; re-run it if the hands change.
 export const STRIKE_LEFT: HandPose = { side: 'left', x: 226.84, y: 768.96, rot: 6, spread: 0.4, curl: 0.9 };
-export const STRIKE_RIGHT: HandPose = { side: 'right', x: 823.78, y: 770.32, rot: -12, spread: 0.2, curl: 1 };
+export const STRIKE_RIGHT: HandPose = { side: 'right', x: 821.78, y: 770.32, rot: -10, spread: 0.15, curl: 1 };
 
 // Where the tail's point taps the cube (its top face): the cube's cracks start here.
 export const CUBE_TAP: Pt = { x: BOTS.cube.cx - 8, y: 950 };
@@ -46,9 +46,10 @@ const memo = <T,>(f: () => T) => {
 export const strikeCracks = memo(
   (): Record<BotKind, CrackSet> => ({
     // 5 each: the traced crack plus 14 more close on the 13 chimes after it
-    bubble: makeCracks('bubble', clawTips(STRIKE_LEFT), 'strike-bubble', 5),
-    cube: makeCracks('cube', [CUBE_TAP], 'strike-cube', 5),
-    orb: makeCracks('orb', clawTips(STRIKE_RIGHT), 'strike-orb', 5),
+    // maxMove: a claw that misses free shell fails the render instead of cracking elsewhere
+    bubble: makeCracks('bubble', clawTips(STRIKE_LEFT), 'strike-bubble', 5, { maxMove: 2 }),
+    cube: makeCracks('cube', [CUBE_TAP], 'strike-cube', 5, { maxMove: 2 }),
+    orb: makeCracks('orb', clawTips(STRIKE_RIGHT), 'strike-orb', 5, { maxMove: 2 }),
   }),
 );
 
@@ -140,18 +141,25 @@ export const strikeState = (f: number, kind: BotKind): CrackState => {
   const set = strikeCracks()[kind];
   const s = sinceHit(f);
   const grow = f < EVENTS.strike ? 0 : easeOutCubic(clamp(s / 12));
-  let weak = clamp((s - 4) / 6);
   const seal = f >= EVENTS.trace.from ? sealAt(f, kind) : set.cracks.map(() => 0);
-  const sealed = seal.length ? seal.reduce((a, b) => a + b, 0) / seal.length : 0;
-  weak *= 1 - sealed;
   const done = lastSealOf(kind);
+  // Open spots glow until the bot's last seam closes (each spot goes out as its
+  // own gold fills, in the bot's crack layer).
+  const weak = clamp((s - 4) / 6) * (1 - invLerp(done, done + 4, f));
   const warm = f < done ? 0 : f < done + 6 ? invLerp(done, done + 6, f) : 1 - invLerp(done + 6, done + 36, f);
   return { set, grow, weak, pulseFrame: f, seal, warm: clamp(warm) };
 };
 
+// The cracks' red light on the stage and on Diablo: the open share of the weak spots.
 export const emberLevel = (f: number) => {
   const ks: BotKind[] = ['bubble', 'cube', 'orb'];
-  return ks.reduce((a, k) => a + strikeState(f, k).weak, 0) / ks.length;
+  return (
+    ks.reduce((a, k) => {
+      const st = strikeState(f, k);
+      const sealed = st.seal.length ? st.seal.reduce((x, y) => x + y, 0) / st.seal.length : 0;
+      return a + st.weak * (1 - sealed);
+    }, 0) / ks.length
+  );
 };
 
 export { lerp };

@@ -1,20 +1,24 @@
 // Find strike poses whose four claw tips all land on free shell: on the
 // bubble above its eyes, on the orb inside the sphere but clear of its eye.
-// Prints the best pose for each hand; story.ts holds the chosen numbers.
+// Prints the best pose for each hand; story.ts holds the chosen numbers. The
+// orb's free shell is a thin crescent round its eye, so its final pose came from
+// a finer local search around this result (every tip ≥ 6 px inside, 0 px moved).
 // Usage: npx tsx scripts/aim-strike.ts
 
+import { freeShellPoint } from '../src/cast/Bots';
 import { clawTips, handBounds } from '../src/cast/Hands';
 import type { HandPose, Pt } from '../src/cast/types';
 
 const centroid = (ps: Pt[]) => ps.reduce((a, p) => ({ x: a.x + p.x / ps.length, y: a.y + p.y / ps.length }), { x: 0, y: 0 });
 
-// Free shell for each target, as a scoring function: 0 inside, px outside.
-const BUBBLE = { x0: 182, x1: 380, y0: 976, y1: 1012 }; // above the eyes, inside the rounded top
-const ORB = { c: { x: 800, y: 1060 }, r: 92, eye: { x: 792, y: 1038 }, eyeClear: 40 }; // eye r 27 + a 13 px margin
-const missBubble = (p: Pt) =>
-  Math.max(0, BUBBLE.x0 - p.x) + Math.max(0, p.x - BUBBLE.x1) + Math.max(0, BUBBLE.y0 - p.y) + Math.max(0, p.y - BUBBLE.y1);
-const missOrb = (p: Pt) =>
-  Math.max(0, Math.hypot(p.x - ORB.c.x, p.y - ORB.c.y) - ORB.r) + Math.max(0, ORB.eyeClear - Math.hypot(p.x - ORB.eye.x, p.y - ORB.eye.y));
+// Free shell for each target, by the bots' own rule (at least 6 px inside the
+// shell, clear of the eyes): 0 on it, else how far makeCracks would move it.
+const missOn = (kind: 'bubble' | 'orb') => (p: Pt) => {
+  const q = freeShellPoint(kind, p, 6);
+  return Math.hypot(q.x - p.x, q.y - p.y);
+};
+const missBubble = missOn('bubble');
+const missOrb = missOn('orb');
 
 const search = (side: 'left' | 'right', target: Pt, miss: (p: Pt) => number, reach = 24) => {
   let best: { pose: HandPose; score: number; tips: Pt[] } | null = null;

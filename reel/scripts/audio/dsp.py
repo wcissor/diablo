@@ -174,6 +174,20 @@ def limit(x: np.ndarray, ceiling_db: float = -1.2, lookahead_ms: float = 1.5,
     return y, float(att.max())
 
 
+def soft_clip(x: np.ndarray, ceiling: float, knee_db: float = 4.0, os: int = OS) -> np.ndarray:
+    """Oversampled soft clipper (per channel): linear below `knee_db` under
+    `ceiling` (linear amplitude), then a tanh knee that approaches the ceiling.
+    Used to take the crest off short, noisy transients (the strike) so the
+    master limiter does not have to duck everything around them."""
+    T = ceiling * float(db2a(-knee_db))
+    up = upsample(x if x.ndim == 2 else x[:, None], os)
+    a = np.abs(up)
+    over = a > T
+    up[over] = np.sign(up[over]) * (T + (ceiling - T) * np.tanh((a[over] - T) / (ceiling - T)))
+    y = signal.resample_poly(up, 1, os, axis=0, window=('kaiser', 9.0))[: x.shape[0]]
+    return y if x.ndim == 2 else y[:, 0]
+
+
 def normalize_and_limit(x: np.ndarray, target_lufs: float, ceiling_dbtp: float = -1.0,
                         margin_db: float = 0.25, iters: int = 8):
     """Gain to target integrated loudness, true-peak limited to the ceiling.

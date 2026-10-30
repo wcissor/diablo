@@ -5,7 +5,9 @@
 #                   audio/build/beat-shift.json suggests cut moves)
 #   2. voice.py     generated voice + voice-cut mix, or voice-status.json saying why not
 #   3. captions.py  out/captions.srt
-#   4. verify.py    durations, loudness, true peak, silence, beats (prints the numbers)
+#   4. verify.py    durations, loudness, true peak, silence, beats, clicks, the strike
+#                   on full range and on a phone (prints the numbers). --strict: any
+#                   FAIL exits 1, which stops this script and scripts/render.sh
 # Run from anywhere: reel/scripts/audio/build.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -15,4 +17,4 @@ npx tsx scripts/export-config.ts
 python3 scripts/audio/synth.py
 python3 scripts/audio/voice.py
 python3 scripts/audio/captions.py
-python3 scripts/audio/verify.py
+python3 scripts/audio/verify.py --strict

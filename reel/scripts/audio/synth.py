@@ -28,7 +28,7 @@ from scipy import signal
 from dsp import (AUDIO_BUILD, REEL, SR, TAU, Bus, Config, a2db, ar, band, butter, db2a, decode,
                  env_db, fit_length, hp_mag, integrated_lufs, interp, interp_geo, load_config, lp_mag,
                  make_ir, momentary_lufs, normalize_and_limit, onset_envelope, pick_onsets, shaped_noise,
-                 shelf, tvec, write_wav)
+                 shelf, soft_clip, tvec, write_wav)
 
 TARGET_LUFS = -18.0
 CEILING_DBTP = -1.0
@@ -39,15 +39,16 @@ AAC_HEADROOM_DB = 0.5  # the AAC encode in the render adds a few tenths of a dB 
 BOT_X = {'bubble': 270, 'cube': 540, 'orb': 800}
 PAN = {k: (x - 540) / 540 * 0.9 for k, x in BOT_X.items()}
 CRACK_BOT = {'crack1': 'orb', 'crack2': 'cube'}
+STRIKE_CLIP_DB = 6.0  # the strike group's peaks are soft-clipped this far down (4x oversampled)
 BLINK_REOPEN_FRAMES = 4  # the softer tick as a blinking bot reopens its eyes (frames after the blink)
 
 # Mix levels (dB) — the balance between elements. The whole mix is then
 # normalised to -18 LUFS, so these are relative.
 LV = {
     # score
-    'drone': -23.0, 'tension': -27.0, 'riser': -25.0, 'heart': -9.0, 'strike_score': -8.0,
+    'drone': -23.0, 'tension': -27.0, 'riser': -25.0, 'heart': -9.0, 'strike_score': -11.0, 'strike_stab': -7.0,
     'dark_drone': -21.0, 'slow_pulse': -9.0, 'tense_pulse': -13.0, 'tense_stab': -22.0,
-    'swell_pad': -17.0, 'rev_cymbal': -25.0, 'landing_boom': -15.5, 'landing_pluck': -21.5, 'crash': -28.0,
+    'swell_pad': -18.0, 'rev_cymbal': -27.0, 'landing_boom': -15.5, 'landing_pluck': -21.5, 'crash': -28.0,
     'calm_pad': -29.0, 'calm_lub': -14.5, 'calm_bass': -18.0, 'calm_bell': -23.0,
     'end_boom': -10.5, 'end_piano': -16.5,
     # effects
@@ -310,12 +311,14 @@ def build_score(cfg: Config, irs: dict) -> np.ndarray:
     # --- B. The strike: a low orchestral hit, then the slow-motion drone ----
     n = ring_n(0.28, extra=0.003)
     t = tvec(n)
-    boom = thump(None, midi(26), midi(38), 0.75, rng, drive=1.6, sweep_tau=0.05)
+    boom = thump(None, midi(26), midi(38), 0.55, rng, drive=1.6, sweep_tau=0.05)
     bus.add(boom, S(strike), 0, LV['strike_score'], hall=0.2, label='strike boom')
-    stab = sum(ensemble(midi(m), n, 2600 * np.exp(-t / 0.12) + 220, rng, 8) for m in (38, 45, 50, 51))
+    # The stab carries the hit's weight in the mids (what a phone plays): a
+    # sustained, bright chord rather than more peak.
+    stab = sum(ensemble(midi(m), n, 3200 * np.exp(-t / 0.14) + 380, rng, 8) for m in (38, 45, 50, 51))
     stab *= ar(n, 0.003, 0.28)[:, None]
     taiko = butter(rng.standard_normal(n), 'lowpass', 260) * ar(n, 0.001, 0.12) * 3
-    bus.add(norm(stab + taiko[:, None]), S(strike), 0, LV['strike_score'] - 4, hall=0.35, label='strike stab')
+    bus.add(norm(stab + taiko[:, None]), S(strike), 0, LV['strike_stab'], hall=0.35, label='strike stab')
 
     # Dark drone 138 → swell: low and tense, pitched down an octave in the slow
     # motion (tape slowing), back up on the ramp; warms to major into the swell.
@@ -400,13 +403,14 @@ def build_score(cfg: Config, irs: dict) -> np.ndarray:
     lvl = env_db(t, [(0, -30), (1.2, -6), (T(b - a) - 0.05, 0), (T(b - a) - 0.01, -60), (T(b - a), -90)])
     bus.add(shim * lvl / 4, S(a), 0, LV['calm_pad'] - 6, hall=0.6, cut_ok=True)  # its envelope closes at the end hit
 
-    # Reverse cymbal into the swell, cut dead on the beat.
+    # Reverse cymbal into the swell, cut dead 30 ms before the beat so the
+    # landing hits into a breath of air (and reads as a clean transient).
     n = int(1.3 * SR)
     t = tvec(n)
     rc = shaped_noise(n, lambda TT, F: hp_mag(F, 2500, 2) * (F / 4000) ** 0.2 * lp_mag(F, 14000), rng)
     x = (t / t[-1]) ** 4
-    x[-int(0.004 * SR):] *= np.linspace(1, 0, int(0.004 * SR))  # its own 4 ms cut, dead on the beat
-    bus.add(norm(rc) * x[:, None], S(swell) - n, 0, LV['rev_cymbal'], hall=0.4, fade_ms=0, cut_ok=True)
+    x[-int(0.004 * SR):] *= np.linspace(1, 0, int(0.004 * SR))  # its own 4 ms cut
+    bus.add(norm(rc) * x[:, None], S(swell) - n - int(0.03 * SR), 0, LV['rev_cymbal'], hall=0.4, fade_ms=0, cut_ok=True)
 
     # Landing on the swell: a soft boom and a bright D major strum, rung until
     # the chord changes (then damped, like a lifted pedal).
@@ -424,7 +428,8 @@ def build_score(cfg: Config, irs: dict) -> np.ndarray:
     n = ring_n(0.18, extra=0.002)
     taiko = (butter(rng.standard_normal(n), 'lowpass', 320) * ar(n, 0.001, 0.09) * 2.5
              + np.sin(TAU * midi(38) * tvec(n)) * ar(n, 0.002, 0.18))
-    bus.add(norm(taiko), S(swell), 0, LV['landing_boom'] - 1.0, room=0.2, hall=0.3, label='landing taiko')
+    # (short: it marks the beat without adding much 400 ms loudness)
+    bus.add(norm(taiko), S(swell), 0, LV['landing_boom'] + 1.0, room=0.2, hall=0.3, label='landing taiko')
     n = ring_n(0.75, extra=0.0015)
     crash = shaped_noise(n, lambda TT, F: band(F, 5500, 1.3) * (1 + 0.5 * band(F, 9000, 0.4)), rng)
     bus.add(norm(crash) * ar(n, 0.0015, 0.75)[:, None], S(swell), 0, LV['crash'], hall=0.5, label='landing crash')
@@ -563,22 +568,29 @@ def build_sfx(cfg: Config, irs: dict):
         bus.add(norm(scr) * (grit * env)[:, None], S(X['bladeScrape']) + int(dt * SR), side, LV['scrape'], hall=0.35)
 
     # ---- the strike: a 50 Hz thump, a noise burst and porcelain cracks ----
+    # On their own bus, soft-clipped (below) so their crest does not make the
+    # master limiter duck the whole hit.
     hit = X['strikeHit']
+    sbus = Bus(N, 'strike')
     n = int(2.0 * SR)
     t = tvec(n)
     # The thump is short and driven hard: 100-400 Hz harmonics carry it on a
     # phone, and its sub no longer pumps the limiter under the crack.
-    bus.add(thump(n, 50, 125, 0.18, rng, drive=3.5, attack=0.0012), S(hit), 0, LV['strike_thump'],
-            room=0.15, hall=0.1, label='strike thump')
+    sbus.add(thump(n, 50, 125, 0.18, rng, drive=3.5, attack=0.0012), S(hit), 0, LV['strike_thump'],
+             room=0.15, hall=0.1, label='strike thump')
     nb = shaped_noise(n, lambda TT, F: lp_mag(F, 7000, 2) * hp_mag(F, 40), rng)
-    env = (np.exp(-t / 0.04) + 0.2 * np.exp(-t / 0.22)) * np.clip(t / 0.0006, 0, 1)
-    bus.add(norm(nb) * env[:, None], S(hit), 0, LV['strike_burst'], room=0.25, hall=0.2)
+    env = (np.exp(-t / 0.04) + 0.3 * np.exp(-t / 0.25)) * np.clip(t / 0.0006, 0, 1)
+    sbus.add(norm(nb) * env[:, None], S(hit), 0, LV['strike_burst'], room=0.25, hall=0.2, label='strike burst')
     body = shaped_noise(n, lambda TT, F: band(F, 520, 0.9), rng)
-    bus.add(norm(body) * (np.exp(-t / 0.07) * np.clip(t / 0.001, 0, 1))[:, None], S(hit), 0, LV['strike_body'], room=0.3)
+    sbus.add(norm(body) * (np.exp(-t / 0.07) * np.clip(t / 0.001, 0, 1))[:, None], S(hit), 0, LV['strike_body'],
+             room=0.3, label='strike body')
     for bot, dt, size in (('bubble', 0.0, 1.0), ('orb', 0.004, 1.05), ('cube', 0.011, 0.8)):
         cr = porcelain_crack(rng, size)
         g = 0.0 if bot != 'cube' else -5.0
-        bus.add(norm(cr), S(hit) + int(dt * SR), PAN[bot], LV['strike_crack'] + g, room=0.3, hall=0.25)
+        sbus.add(norm(cr), S(hit) + int(dt * SR), PAN[bot], LV['strike_crack'] + g, room=0.3, hall=0.25,
+                 label=f'crack {bot}')
+    strike = sbus.render(irs)
+    strike = soft_clip(strike, float(np.max(np.abs(strike))) * db2a(-STRIKE_CLIP_DB), knee_db=4.0)
 
     # Slow motion: the rumble pitched down an octave, then crackle as the
     # cracks spread; both ease out on the ramp back to speed.
@@ -623,16 +635,15 @@ def build_sfx(cfg: Config, irs: dict):
     gloop = shaped_noise(n, lambda TT, F: band(F, 300, 0.8), rng, channels=1)[:, 0]
     gloop *= 0.5 + 0.5 * np.sin(TAU * 7.0 * t + 3 * np.sin(TAU * 1.3 * t))
     tf = T(fa['from'] - sz['from'])
-    env = env_db(t, [(0, -40), (0.12, -6), (tf, -6), (d_end - 0.05, 0), (d_end, 0), (d_end + 0.35, -50),
+    env = env_db(t, [(0, -40), (0.12, -6), (tf, -6), (d_end - 0.05, -4.5), (d_end, -4.5), (d_end + 0.35, -54),
                      (d_end + 0.42, -90)])
     mix = norm(hiss) * bub[:, None] + 0.6 * norm(pops)[:, None] + 0.35 * norm(gloop)[:, None]
     pan = interp(t, [(0, PAN['bubble']), (T(tr_['to'] - sz['from']), PAN['bubble'] * 0.8), (tf + 0.3, 0.0)])
     bus.add(norm(mix) * env[:, None], S(sz['from']), pan, LV['sizzle'], hall=0.3)
 
     # One chime per seam, each a scale step higher, the last landing on the tonic.
-    # The run rings into the swell and is damped just after it lands; the
-    # tonic rings out.
-    swell = B['swell']
+    # Each chime rings under the next five and is then damped, so the run stays
+    # a clear rising line into the swell; the tonic rings out.
     chimes = X['seamChimes']
     nc = len(chimes)
     steps = [0, 2, 4, 5, 7, 9, 11]
@@ -642,13 +653,13 @@ def build_sfx(cfg: Config, irs: dict):
         m = 62 + 12 * (dgr // 7) + steps[dgr % 7]  # D major from D4
         last = i == nc - 1
         ln = 1.4 if last else 1.0
-        off = None if last else max(T(swell - f), 0.0) + 0.3
+        off = None if last else T(chimes[min(i + 5, nc - 1)] - f) + 0.1
         n = ring_n(*chime_taus(midi(m), ln)) if last else ring_n(0.35, extra=off)
         x = np.stack([chime(midi(m), n, rng, ln), chime(midi(m) * 2 ** (2 / 1200), n, rng, ln)], axis=1)
         if not last:
             x = release(x, off, 0.35)
         pan = 0.0 if last else interp(i, [(0, -0.55), (nc - 2, 0.55)])
-        bus.add(norm(x), S(f), pan, LV['chime'] + (3.0 if last else 0.0) - 0.15 * i, hall=0.45, label=f'chime {f}')
+        bus.add(norm(x), S(f), pan, LV['chime'] + (1.5 if last else 0.0) - 0.15 * i, hall=0.45, label=f'chime {f}')
 
     # A hairline crack on the orb, then the flicks: a bright tink and a snap
     # as the seal closes (the second quicker).
@@ -713,7 +724,7 @@ def build_sfx(cfg: Config, irs: dict):
     wa = shaped_noise(n, lambda TT, F: band(F, interp_geo(TT, [(0, 1200), (d, 3600)]), 1.0), rng)
     env = np.sin(np.pi * np.clip(t / d, 0, 1)) ** 1.5
     bus.add(norm(wa) * env[:, None], S(wp['from']), interp(t, [(0, -0.6), (d, 0.6)]), LV['wipe_air'], hall=0.4)
-    sfx = bus.render(irs)
+    sfx = bus.render(irs) + strike
 
     # Air as the slit closes, on its own bus: it goes in after the end fade, so
     # it is heard in full while the music resolves; its envelope closes at
@@ -739,7 +750,7 @@ def build_sfx(cfg: Config, irs: dict):
          0.8 * butter(rng.standard_normal((n, 2)), 'lowpass', 300))
     w[-24:] *= np.linspace(1, 0, 24)[:, None]
     wbus.add(norm(w) * x[:, None], a, 0, LV['inhale'], room=0.25, fade_ms=0, cut_ok=True)  # cut by the hit
-    return sfx, wbus.render(irs), close_air, bus.cut_tails + cbus.cut_tails
+    return sfx, wbus.render(irs), close_air, bus.cut_tails + sbus.cut_tails + cbus.cut_tails
 
 
 # ================================================================== main ===
