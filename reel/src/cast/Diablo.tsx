@@ -65,7 +65,7 @@ export const eyePoly = (e: Eye, side: 0 | 1, s: DiabloEyeState): Pt[] | null => 
   if (h < 0.6) return null;
   const w = e.w * (1 + 0.06 * narrow);
   const rt = Math.min(w * 0.47, h / 2); // top corners
-  const rb = Math.min(w * 0.47 * (1 - 0.35 * narrow), h / 2); // bottom corners: a little squarer
+  const rb = Math.min(w * 0.47 * (1 - 0.1 * narrow), h / 2); // bottom corners stay round: soft feet
   const lean = (e.lean * Math.PI) / 180;
   const cs = Math.cos(lean);
   const sn = Math.sin(lean);

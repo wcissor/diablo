@@ -29,7 +29,8 @@ export interface BotCrackSet extends CrackSet {
   cracks: BotCrack[];
   weakSpots: BotWeakSpot[];
   reach: number; // px: the furthest network distance (grow = 1 reaches it)
-  impacts: Pt[]; // where the strike landed (chips are drawn there)
+  impacts: Pt[]; // where the strike landed on free shell (punctures are drawn there); each roots ≥ 1 crack
+  impactInfo?: ImpactInfo[]; // per impact passed in: where it was aimed, where it landed, how far it moved, dropped?
   hairline?: boolean;
 }
 
@@ -213,25 +214,124 @@ const blobPts = (R: () => number, n = 9): Pt[] => {
 
 /* ──────────────────────────────── strikes ──────────────────────────────── */
 
+export interface MakeCracksOpts {
+  // Throw (fail the render loudly) if any impact has to move further than this
+  // many px to reach free shell (off the faces, inside the shell by 5 px).
+  maxMove?: number;
+}
+
+// What became of each impact passed in (parallel to the input array).
+export interface ImpactInfo {
+  aimed: Pt; // the point passed in
+  at: Pt; // where the strike was placed: the nearest free shell point
+  moved: number; // px between the two
+  dropped?: 'merged' | 'no-room'; // not drawn: too close to an earlier impact, or no crack could start there
+}
+
+const MIN_MAIN = 30; // px: shorter mains are walked again on another heading
+const MIN_FORK = 20; // px: shorter forks are discarded
+const MIN_ROOTED = 25; // px: every drawn impact roots at least one crack this long
+const MIN_SEP = 28 * DEG; // cracks leaving one root keep at least this far apart
+
+const impactCache = new Map<string, Pt>();
+// The nearest point on a bot's free shell (inside by `margin`, off the faces
+// and the cube's screen) to `p`, stage coordinates. Use it to aim claws.
+export const freeShellPoint = (kind: BotKind, p: Pt, margin = 5): Pt => {
+  const key = `${kind}:${p.x.toFixed(2)}:${p.y.toFixed(2)}:${margin}`;
+  let q = impactCache.get(key);
+  if (!q) {
+    q = projectInside(kind, p, margin);
+    if (impactCache.size > 512) impactCache.clear();
+    impactCache.set(key, q);
+  }
+  return q;
+};
+// True when `p` is free shell (a claw tip there strikes exactly where it lands).
+export const isFreeShell = (kind: BotKind, p: Pt, margin = 5) => okAt(kind, p, margin);
+
+const warned = new Set<string>();
+
+// The direction a crack leaves its root (over its first ~14 px).
+const rootDir = (pts: Pt[]) => {
+  const q = pointAlong(pts, 14).p;
+  return Math.atan2(q.y - pts[0].y, q.x - pts[0].x);
+};
+const angGap = (a: number, b: number) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+
 // 5–8 cracks branching from the impact points (claw points, stage coords) across
 // the shell, with 2–3 ember weak spots at their junctions. `count` overrides the
-// seeded 5–8.
-export function makeCracks(kind: BotKind, impacts: Pt[], seed: string, count?: number): CrackSet {
+// seeded 5–8. Every crack is at least MIN_MAIN (mains) / MIN_FORK (forks) long,
+// and every drawn impact roots at least one crack.
+export function makeCracks(kind: BotKind, impacts: Pt[], seed: string, count?: number, opts: MakeCracksOpts = {}): CrackSet {
   const R = seq(`cracks:${kind}:${seed}`);
   const n = Math.max(5, Math.min(8, Math.round(count ?? 5 + Math.floor(R() * 4))));
-  const imps = (impacts.length ? impacts : [{ x: BOTS[kind].cx, y: BOTS[kind].feetY - 180 }]).slice(0, n).map((p) => projectInside(kind, p, 5));
   const a = BOTS[kind];
   const c = shellCentreLocal(kind);
   const centre = { x: c.x + a.cx, y: c.y + a.feetY };
-  const g = imps.reduce((s, p) => ({ x: s.x + p.x / imps.length, y: s.y + p.y / imps.length }), { x: 0, y: 0 });
+  const shell = shellStage(kind);
 
-  // Mains: at least one per impact; a lone impact gets a star of them.
-  const mains = imps.length === 1 ? Math.max(3, n - 2) : Math.max(imps.length, Math.min(n - 1, Math.ceil(n * 0.6)));
-  const perImpact = imps.map((_, j) => Math.floor(mains / imps.length) + (j < mains % imps.length ? 1 : 0));
+  // Place each impact on free shell, and say how far it had to move.
+  const raw = impacts.length ? impacts.slice(0, n) : [{ x: a.cx + c.x, y: a.feetY + c.y - 60 }];
+  const info: ImpactInfo[] = raw.map((p) => {
+    const at = freeShellPoint(kind, p, 5);
+    return { aimed: { x: p.x, y: p.y }, at, moved: dist(p, at) };
+  });
+  info.forEach((im, j) => {
+    if (info.slice(0, j).some((o) => !o.dropped && dist(o.at, im.at) < 12)) im.dropped = 'merged';
+  });
+  const far = info.filter((im) => im.moved > 3);
+  if (far.length) {
+    const msg = `makeCracks(${kind}, '${seed}'): ${far
+      .map((im) => `impact (${im.aimed.x.toFixed(1)}, ${im.aimed.y.toFixed(1)}) is not on free shell; moved ${im.moved.toFixed(1)} px to (${im.at.x.toFixed(1)}, ${im.at.y.toFixed(1)})`)
+      .join('; ')}`;
+    if (opts.maxMove !== undefined && far.some((im) => im.moved > opts.maxMove!)) throw new Error(msg);
+    if (!warned.has(msg)) {
+      warned.add(msg);
+      console.warn(msg);
+    }
+  }
+  const live = () => info.filter((im) => !im.dropped);
+  const g0 = live();
+  const g = g0.reduce((s, im) => ({ x: s.x + im.at.x / g0.length, y: s.y + im.at.y / g0.length }), { x: 0, y: 0 });
 
   const mainOpts: WalkOpts = { stepMin: 14, stepMax: 26, jitter: 6, pull: 0.12, kink: 0.2 };
   const cracks: BotCrack[] = [];
-  imps.forEach((p, j) => {
+  const others = () => cracks.map((cr) => cr.points);
+  const dirsAt = (p: Pt) => cracks.filter((cr) => cr.main && dist(cr.points[0], p) < 0.5).map((cr) => rootDir(cr.points));
+
+  // The first heading near `h` (tried in widening swings) that gives a crack of
+  // `minLen` or more leaving `p` clear of the cracks already rooted there.
+  const SWINGS = [0, 22, -22, 44, -44, 66, -66, 92, -92, 120, -120, 150, -150, 180];
+  const walkNear = (p: Pt, h: number, len: number, minLen: number, swings = SWINGS): Pt[] | null => {
+    const dirs = dirsAt(p);
+    for (const sw of swings) {
+      const pts = walk(kind, p, h + sw * DEG, len, R, mainOpts, others());
+      if (pts.length < 2 || polyLength(pts) < minLen) continue;
+      const d = rootDir(pts);
+      if (dirs.some((o) => angGap(o, d) < MIN_SEP)) continue;
+      return pts;
+    }
+    return null;
+  };
+  // The longest crack from `p` over a sweep of 16 headings.
+  const sweepLongest = (p: Pt, h0: number): Pt[] | null => {
+    const dirs = dirsAt(p);
+    let best: Pt[] | null = null;
+    for (let s = 0; s < 16; s++) {
+      const pts = walk(kind, p, h0 + (s / 16) * Math.PI * 2, 105 + R() * 85, R, mainOpts, others());
+      if (pts.length < 2 || dirs.some((o) => angGap(o, rootDir(pts)) < MIN_SEP)) continue;
+      if (!best || polyLength(pts) > polyLength(best)) best = pts;
+    }
+    return best;
+  };
+
+  // Mains: at least one per impact; a lone impact gets a star of them (a fan
+  // over the inward 200° when it sits near the shell's edge).
+  const imps = g0.map((im) => im.at);
+  const mains = imps.length === 1 ? Math.max(3, n - 2) : Math.max(imps.length, Math.min(n - 1, Math.ceil(n * 0.6)));
+  const perImpact = imps.map((_, j) => Math.floor(mains / imps.length) + (j < mains % imps.length ? 1 : 0));
+  g0.forEach((im, j) => {
+    const p = im.at;
     const k = perImpact[j];
     const toC = Math.atan2(centre.y - p.y, centre.x - p.x);
     let base = toC;
@@ -246,46 +346,74 @@ export function makeCracks(kind: BotKind, impacts: Pt[], seed: string, count?: n
       }
     }
     const lone = imps.length === 1;
-    const spread = lone ? Math.PI * 2 : Math.min(150, 62 * (k - 1)) * DEG;
+    const nearEdge = insideDepth(p, shell) < 30;
     for (let i = 0; i < k; i++) {
-      const h = lone
-        ? base + Math.PI / k + (i / k) * spread + (R() - 0.5) * 0.45
-        : base + (k === 1 ? 0 : (i / (k - 1) - 0.5) * spread) + (R() - 0.5) * 0.4;
-      const len = 105 + R() * 85;
-      const pts = walk(kind, p, h, len, R, mainOpts, cracks.map((cr) => cr.points));
-      if (pts.length >= 2) cracks.push(toCrack(pts, 0, -1, true));
+      let h: number;
+      if (lone && !nearEdge) h = base + Math.PI / k + (i / k) * Math.PI * 2 + (R() - 0.5) * 0.45;
+      else if (lone) h = base + (k === 1 ? 0 : (i / (k - 1) - 0.5) * 200 * DEG) + (R() - 0.5) * 0.3;
+      else h = base + (k === 1 ? 0 : (i / (k - 1) - 0.5) * Math.min(150, 62 * (k - 1)) * DEG) + (R() - 0.5) * 0.4;
+      const pts = walkNear(p, h, 105 + R() * 85, MIN_MAIN);
+      if (pts) cracks.push(toCrack(pts, 0, -1, true));
+    }
+    // Every impact roots a crack: sweep the headings if its own all failed.
+    if (!dirsAt(p).length) {
+      const pts = sweepLongest(p, toC);
+      if (pts && polyLength(pts) >= MIN_ROOTED) cracks.push(toCrack(pts, 0, -1, true));
+      else im.dropped = 'no-room';
     }
   });
+  // Nothing could start anywhere (should not happen): strike the shell's middle.
+  if (!cracks.length) {
+    const p = freeShellPoint(kind, { x: centre.x, y: centre.y - 40 }, 8);
+    info.push({ aimed: p, at: p, moved: 0 });
+    const pts = sweepLongest(p, -Math.PI / 2);
+    if (pts) cracks.push(toCrack(pts, 0, -1, true));
+  }
 
   // Forks: branch off the longer cracks part-way along.
   const forkOpts: WalkOpts = { stepMin: 10, stepMax: 18, jitter: 7, pull: 0.12, kink: 0.2 };
   const junctions: { p: Pt; angle: number; links: WeakLink[] }[] = [];
-  let tries = 0;
-  while (cracks.length < n && tries++ < 40) {
-    const order = cracks
-      .map((cr, i) => ({ i, w: cr.length * (cr.main ? 1 : 0.5) * (0.6 + R()) }))
-      .sort((x, y) => y.w - x.w);
-    const pi = order[Math.min(order.length - 1, Math.floor(R() * Math.min(3, order.length)))]?.i;
-    if (pi === undefined) break;
-    const parent = cracks[pi];
-    if (parent.length < 40) continue;
-    const t = 0.3 + R() * 0.38;
-    const at = pointAlong(parent.points, parent.length * t);
-    const turn = (R() < 0.5 ? 1 : -1) * (32 + R() * 30) * DEG;
-    const pts = walk(kind, at.p, at.angle + turn, 30 + R() * 45, R, forkOpts, cracks.map((cr) => cr.points));
-    if (pts.length < 3) continue;
-    const idx = cracks.length;
-    cracks.push(toCrack(pts, parent.rootDist + parent.length * t, pi, false));
-    junctions.push({ p: at.p, angle: at.angle, links: [{ i: pi, t }, { i: idx, t: 0 }] });
+  const fork = (minParent: number, minLen: number, tries: number) => {
+    for (let t0 = 0; cracks.length < n && t0 < tries; t0++) {
+      const order = cracks
+        .map((cr, i) => ({ i, w: cr.length * (cr.main ? 1 : 0.5) * (0.6 + R()) }))
+        .sort((x, y) => y.w - x.w);
+      const pi = order[Math.min(order.length - 1, Math.floor(R() * Math.min(3, order.length)))]?.i;
+      if (pi === undefined) return;
+      const parent = cracks[pi];
+      if (parent.length < minParent) continue;
+      const t = 0.3 + R() * 0.38;
+      const at = pointAlong(parent.points, parent.length * t);
+      const turn = (R() < 0.5 ? 1 : -1) * (32 + R() * 30) * DEG;
+      const pts = walk(kind, at.p, at.angle + turn, 30 + R() * 45, R, forkOpts, others());
+      if (pts.length < 3 || polyLength(pts) < minLen) continue;
+      const idx = cracks.length;
+      cracks.push(toCrack(pts, parent.rootDist + parent.length * t, pi, false));
+      junctions.push({ p: at.p, angle: at.angle, links: [{ i: pi, t }, { i: idx, t: 0 }] });
+    }
+  };
+  fork(40, MIN_FORK, 60);
+  // Still short: more mains from the impacts, round the free headings.
+  for (let round = 0; cracks.length < n && round < 3; round++) {
+    for (const im of live()) {
+      if (cracks.length >= n) break;
+      const p = im.at;
+      const toC = Math.atan2(centre.y - p.y, centre.x - p.x);
+      const pts = walkNear(p, toC + (R() - 0.5) * 0.6, 90 + R() * 70, MIN_MAIN, [0, 30, -30, 60, -60, 90, -90, 120, -120, 150, -150, 180]);
+      if (pts) cracks.push(toCrack(pts, 0, -1, true));
+    }
   }
+  fork(30, 16, 60);
 
+  const imps2 = live().map((im) => im.at);
   // Impact points that root two or more cracks are junctions too.
-  imps.forEach((p) => {
+  imps2.forEach((p) => {
     const rooted = cracks.map((cr, i) => ({ cr, i })).filter(({ cr }) => cr.main && dist(cr.points[0], p) < 0.5);
     if (rooted.length >= 2) junctions.push({ p, angle: pointAlong(rooted[0].cr.points, 6).angle, links: rooted.map(({ i }) => ({ i, t: 0 })) });
   });
 
-  const longest = cracks.reduce((best, cr, i) => (cr.length > cracks[best].length ? i : best), 0);
+  // The crack the claw traces in shot 4: the longest main (rooted at an impact).
+  const longest = cracks.reduce((best, cr, i) => (cr.main && (!cracks[best].main || cr.length > cracks[best].length) ? i : best), 0);
 
   // 2–3 weak spots at junctions (forks first: they sit out on the shell).
   const want = 2 + (R() < 0.5 ? 1 : 0);
@@ -295,6 +423,7 @@ export function makeCracks(kind: BotKind, impacts: Pt[], seed: string, count?: n
     const r = (kind === 'cube' ? 10 : 10.5) + R() * 3.5;
     if (!okAt(kind, p, relaxed ? r + 3 : r + 6) || (!relaxed && !faceClear(kind, p))) return;
     if (weakSpots.some((w) => dist(w, p) < (relaxed ? 30 : 40))) return;
+    if (imps2.some((q) => dist(q, p) < r + 9) && !links.every((l) => l.t === 0)) return; // not on top of a puncture
     weakSpots.push({ x: p.x, y: p.y, r, pts: blobPts(R), angle, links });
   };
   junctions.forEach((j) => place(j.p, j.angle, j.links));
@@ -309,7 +438,7 @@ export function makeCracks(kind: BotKind, impacts: Pt[], seed: string, count?: n
   for (let i = 0; i < cracks.length && weakSpots.length < 2; i++) for (const t of [0.5, 0.3, 0.7, 0.9]) along(i, t, true);
 
   const reach = cracks.reduce((m, cr) => Math.max(m, cr.rootDist + cr.length), 1);
-  const set: BotCrackSet = { kind, cracks, weakSpots, longest, reach, impacts: imps };
+  const set: BotCrackSet = { kind, cracks, weakSpots, longest, reach, impacts: live().map((im) => im.at), impactInfo: info };
   return set;
 }
 

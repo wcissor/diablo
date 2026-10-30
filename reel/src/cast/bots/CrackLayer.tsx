@@ -147,8 +147,12 @@ export const CrackLayer: React.FC<{ kind: BotKind; id: string; states: CrackStat
     if (front > 0.5) {
       setImpacts(set).forEach((p, ii) => {
         const k = smooth(clamp(front / 8));
-        // The puncture fills with gold once a crack rooted there starts to seal.
-        const g = set.cracks.reduce((m, cr, ci) => (Math.hypot(cr.points[0].x - p.x, cr.points[0].y - p.y) < 0.5 ? Math.max(m, clamp(((s.seal[ci] ?? 0) * cr.length) / 10)) : m), 0);
+        // The puncture fills with gold once a crack rooted there starts to seal
+        // (a hand-built set with no crack rooted there follows the mean seal).
+        const rooted = set.cracks.map((cr, ci) => ({ cr, ci })).filter(({ cr }) => Math.hypot(cr.points[0].x - p.x, cr.points[0].y - p.y) < 0.5);
+        const g = rooted.length
+          ? rooted.reduce((m, { cr, ci }) => Math.max(m, clamp(((s.seal[ci] ?? 0) * cr.length) / 10)), 0)
+          : set.cracks.reduce((m, _, ci) => m + clamp(s.seal[ci] ?? 0) / Math.max(1, set.cracks.length), 0);
         const tr = `translate(${p.x.toFixed(2)} ${p.y.toFixed(2)}) rotate(${((ii * 37) % 30) - 15}) scale(${k.toFixed(3)})`;
         holes.push(
           <g key={`chip-${si}-${ii}`} transform={tr}>

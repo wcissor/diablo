@@ -7,6 +7,7 @@ import { clamp, rnd, smooth, type Pt } from '../../lib/anim';
 import { mix } from '../../stage/Stage';
 import { polyD } from './geom';
 import { shellCentreLocal } from './shapes';
+import { freeShellPoint } from './cracks';
 
 const GRAVITY = 1.25; // px per story frame²
 export const SHARD_LIFE = 45; // story frames
@@ -28,7 +29,7 @@ export const Shards: React.FC<{ kind: BotKind; impacts: Pt[]; t: number; seed: s
   const fade = 1 - smooth(clamp((t - 36) / 9));
   const items: React.ReactNode[] = [];
   for (let i = 0; i < n; i++) {
-    const imp = impacts[i % impacts.length];
+    const imp = freeShellPoint(kind, impacts[i % impacts.length]); // where makeCracks put the puncture
     const p0 = { x: imp.x + (R() - 0.5) * 12, y: imp.y + (R() - 0.5) * 8 };
     const out = Math.atan2(p0.y - centre.y, p0.x - centre.x);
     let dx = Math.cos(out) * 0.8;
