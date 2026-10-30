@@ -40,11 +40,11 @@ What is measured (thresholds are the constants below)
       → bbox vs the words zone and distance to the nearest non-background pixel; right-rail pixels
       (x ≥ 936, y 800–1248, stage line, wipe and flash excluded); end-card text inside the core area
   G4  tesseract on the words region (2×, psm 6 then 4) one frame per shot and the end card; on whole
-      stills, for digits/% and stray words (text-sized tokens only): psm 11 on the inverted frame (light
-      glyphs on the dark ground), psm 12 on the plain grey frame, and psm 11 on a sheet of the dark or gold
-      marks lifted off the bots, one cluster per line (a number standing clear on a bot). Single digits,
-      glyphs touching an eye, crack or claw, and glyphs over Diablo are missed, so the G5/G7 reviewers
-      check "no digits or letters on the bots or on Diablo";
+      stills, for digits/% (conf ≥ 75) and stray words (conf ≥ 85), text-sized tokens only: psm 11 on the
+      inverted frame (light glyphs on the dark ground) and psm 11 on a sheet of the marks lifted off the
+      bots, their screens and Diablo, one cluster per line (a number standing clear on a bot). Single
+      digits and glyphs touching an eye, crack, claw or Diablo's outline are missed, so the G5/G7
+      reviewers check "no digits or letters on the bots or on Diablo";
       glyph heights from connected components; WCAG contrast of glyph colour vs the brightest 5 % of the
       surrounding background
   G1/G10 a missing voice cut is allowed only when voice-status.json says the voice was skipped (ok false
@@ -135,7 +135,8 @@ FLASH_JUMP = 0.10  # luma (0–1) above the neighbours' median
 SLOWMO_MAX_RATIO = 0.7
 CUT_MAX_DIST = 3  # frames
 CUT_FIND_SCORE, CUT_CONFIRM_SCORE = 4.0, 3.0  # change spike vs its neighbours: to find a cut / to confirm a planned one
-OCR_DIGIT_CONF = 60
+OCR_DIGIT_CONF = 75  # real digits read at 96–97; eyes and claws read as "00"/"4" at up to 63 on clean frames
+OCR_DIGIT_UNSURE = 50  # text-sized digit tokens from here up to OCR_DIGIT_CONF are listed for a look, not failed
 OCR_STRAY_CONF = 85
 OCR_TOKEN_PX = (12, 160)  # word-box heights that can be text here (the 120 px name is ~120 px with descenders)
 MIN_GLYPH_PX = 30
@@ -1214,22 +1215,22 @@ SHEET_LINE_PX, SHEET_GAP, SHEET_MARGIN = 64, 40, 16
 
 
 def porcelain_sheet(rgb: np.ndarray) -> tuple[Image.Image, list[tuple[int, int, float, Box]]] | None:
-    """The marks on the light shapes (a number printed on a bot's face, chest or screen frame), one glyph-sized
-    cluster per line on a white sheet, each scaled to ~64 px tall → (sheet, [(sheet y0, sheet y1, scale, frame box)]).
-    In the whole frame tesseract takes a bot for one big glyph and misses what is on it; on the sheet each mark
-    is alone on white paper. Marks are dark pixels or coloured ones (gold: RGB spread ≥ 60) inside a light,
-    neutral shape of ≥ 4000 px; clusters are 12–180 px tall. A mark touching another (an eye, a crack, a claw)
-    merges with it and usually reads as junk."""
+    """The marks on the bots and on Diablo, one glyph-sized cluster per line on a white sheet, each scaled to
+    ~64 px tall → (sheet, [(sheet y0, sheet y1, scale, frame box)]). In the whole frame tesseract takes a bot
+    for one big glyph and misses what is on it; on the sheet each mark is alone on white paper. Marks are
+    dark or coloured (gold: RGB spread ≥ 60) strokes on a light neutral shape of ≥ 4000 px (porcelain), light
+    or gold strokes on a solid dark panel in one (a screen), and light strokes on a big maroon shape (Diablo).
+    Strokes are 8–170 px tall and not solid; clusters 12–180 px. A mark touching another (an eye, a crack,
+    a claw) merges with it and usually reads as low-confidence junk."""
     y = luma_of(rgb)
     rgbi = rgb.astype(np.int16)
     coloured = (rgbi.max(axis=2) - rgbi.min(axis=2)) >= 60
     light = ndimage.binary_opening((y > 0.6) & ~coloured, iterations=2)
     region = ndimage.binary_fill_holes(ndimage.binary_closing(light, iterations=6))
     lab, n = ndimage.label(region)
-    if n == 0:
-        return None
-    sizes = ndimage.sum(region, lab, index=np.arange(1, n + 1))
+    sizes = ndimage.sum(region, lab, index=np.arange(1, n + 1)) if n else np.zeros(0)
     shapes = np.isin(lab, 1 + np.flatnonzero(sizes >= 4000))
+
     def glyph_sized(mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """→ (glyph-sized strokes, blocks: too big or too solid to be a glyph)."""
         cl, cn = ndimage.label(mask, structure=np.ones((3, 3)))
@@ -1240,8 +1241,9 @@ def porcelain_sheet(rgb: np.ndarray) -> tuple[Image.Image, list[tuple[int, int, 
             h, w = sl[0].stop - sl[0].start, sl[1].stop - sl[1].start
             area = int((cl[sl] == k).sum())
             solid = area > 0.8 * h * w and min(h, w) >= 8
+            line = area < 0.12 * h * w and max(h, w) > 60  # an outline, a rim light, a crack: not a glyph
             block[k] = solid or h > 170 or w > 600
-            ok[k] = not block[k] and 8 <= h and area >= 30
+            ok[k] = not block[k] and not line and 8 <= h and area >= 30
         return ok[cl], block[cl]
 
     dark = shapes & ~light & (y < 0.45)
@@ -1250,6 +1252,16 @@ def porcelain_sheet(rgb: np.ndarray) -> tuple[Image.Image, list[tuple[int, int, 
     on_panel, _ = glyph_sized(panel & ~dark & ((y > 0.5) | coloured))
     # dark or gold marks on the porcelain itself
     kept, _ = glyph_sized(shapes & ~light & ~panel & (dark | coloured))
+    # Diablo: big maroon shapes, and the light marks on them (gold cracks and claws come along: OCR junk, low conf)
+    maroon = (rgbi[..., 0] - rgbi[..., 2] >= 40) & (y < 0.3)
+    ml, mn = ndimage.label(ndimage.binary_closing(maroon, iterations=3))
+    if mn:
+        msz = ndimage.sum(np.ones_like(y), ml, index=np.arange(1, mn + 1))
+        body = ndimage.binary_fill_holes(np.isin(ml, 1 + np.flatnonzero(msz >= 20000)))
+        body = ndimage.binary_dilation(body, iterations=24) & ~shapes  # glyphs crossing its outline too
+        on_body, _ = glyph_sized(body & ~maroon & (y > 0.5))
+        panel |= body
+        on_panel |= on_body
     if not (kept.any() or on_panel.any()):
         return None
     page = np.full(y.shape, 255, dtype=np.uint8)
@@ -1288,10 +1300,8 @@ def ocr_still_passes(ctx: Ctx, rgb: np.ndarray, f: int) -> list[tuple[str, dict,
     # light glyphs on the dark ground: brightness stretched and inverted, sparse text
     for r in tesseract(ocr_prep(rgb, 1), 11, ctx.tmp, f"full-{f}-inv"):
         out.append(("psm11-inverted", r, (int(r.get("left", 0)) - 20, int(r.get("top", 0)) - 20, r.get("height", 0))))
-    # the plain grey frame, sparse text with layout (dark glyphs on a light shape, when the layout finds them)
-    for r in tesseract(Image.fromarray(rgb).convert("L"), 12, ctx.tmp, f"full-{f}-grey"):
-        out.append(("psm12-grey", r, (int(r.get("left", 0)), int(r.get("top", 0)), r.get("height", 0))))
-    # dark or gold marks on the bots and other light shapes, one cluster per line
+    # the marks on the bots and on Diablo, one cluster per line (psm 12 on the plain grey frame was tried: it found
+    # nothing the sheet misses and read a claw as "4" at conf 63)
     ps = porcelain_sheet(rgb)
     if ps is not None:
         sheet, rows = ps
@@ -1309,9 +1319,10 @@ def ocr_still_passes(ctx: Ctx, rgb: np.ndarray, f: int) -> list[tuple[str, dict,
 def still_tokens(ctx: Ctx, rgb: np.ndarray, f: int, expected, expected_word) -> tuple[list[dict], list[dict]]:
     """Digits, % and stray words tesseract finds anywhere in one frame → (counted, ignored).
     Digits count at conf ≥ OCR_DIGIT_CONF, words at ≥ OCR_STRAY_CONF, both only when text-sized; the expected
-    words never count. Catches light glyphs on the dark ground and dark or gold glyphs standing clear on a bot;
-    misses single isolated digits, glyphs touching an eye, crack or claw, and glyphs over Diablo, so the G5/G7
-    reviewers look for "no digits or letters on the bots or on Diablo"."""
+    words never count. Catches light glyphs on the dark ground, dark or gold glyphs standing clear on a bot or
+    its screen, and light or gold glyphs clear on Diablo; misses single isolated digits and glyphs touching an
+    eye, a crack, a claw or Diablo's outline, so the G5/G7 reviewers look for "no digits or letters on the bots
+    or on Diablo"."""
     found: dict[tuple, dict] = {}
     ignored: list[dict] = []
     for name, r, (x, y, hgt) in ocr_still_passes(ctx, rgb, f):
@@ -1395,7 +1406,10 @@ def g4_text(ctx: Ctx, fr: Frames) -> Result:
             stray += s_
             ignored += i_
     for s in stray:
-        problems.append(f"f{s['frame']}: stray {s['kind']} “{s['text']}” (conf {s['conf']:.0f})")
+        problems.append(f"f{s['frame']}: stray {s['kind']} “{s['text']}” (conf {s['conf']:.0f}, {s['pass']}, "
+                        f"at x {s['at'][0]} y {s['at'][1]})")
+    unsure = [i for i in ignored
+              if i["conf"] >= OCR_DIGIT_UNSURE and OCR_TOKEN_PX[0] <= i["height_px"] <= OCR_TOKEN_PX[1]]
     min_size = min(sizes, key=lambda s: s[0]) if sizes else None
     min_con = min(contrasts, key=lambda c: c[0]) if contrasts else None
     if max(max_words_cfg, max_words_ocr) > 4:
@@ -1406,7 +1420,7 @@ def g4_text(ctx: Ctx, fr: Frames) -> Result:
         problems.append(f"“{min_con[1]}” contrast {min_con[0]:.1f}:1")
     if not sizes:
         problems.append("no glyphs measured")
-    ctx.m["G4"] = {"frames": per, "stray_tokens": stray, "ignored_low_conf_digits": ignored,
+    ctx.m["G4"] = {"frames": per, "stray_tokens": stray, "unsure_digits": unsure, "ignored_low_conf_digits": ignored,
                    "max_words_config": max_words_cfg, "max_words_ocr": max_words_ocr,
                    "glyphs": [{"line": s[3], "est_font_px": s[0], "x_height": s[1], "cap_or_ascender": s[2]}
                               for s in sizes],
@@ -1414,11 +1428,14 @@ def g4_text(ctx: Ctx, fr: Frames) -> Result:
     matched = sum(1 for p in per if p["match"])
     read = ", ".join("f%d “%s”" % (p["frame"], p["ocr"]) for p in per)
     text = (f"OCR (tesseract psm 6, psm 4 fallback, 2×) matched {matched}/{len(targets)} lines to config ({read}); "
-            f"full-still OCR (psm 11 inverted, psm 12 grey, psm 11 on the marks lifted off the bots): digits/% "
-            f"{len([s for s in stray if s['kind'] == 'digit'])} (conf ≥ {OCR_DIGIT_CONF}, text-sized; {len(ignored)} "
-            f"low-conf/shape tokens ignored), stray text {len([s for s in stray if s['kind'] == 'text'])} (reliable "
-            "only on the dark ground and for dark or gold glyphs standing clear on a bot: single digits, glyphs touching "
-            "an eye, crack or claw, and anything over Diablo are left to the G5/G7 reviewers); "
+            f"full-still OCR (psm 11 on the inverted frame + psm 11 on the marks lifted off the bots and Diablo): "
+            f"digits/% {len([s for s in stray if s['kind'] == 'digit'])} (conf ≥ {OCR_DIGIT_CONF}, text-sized; "
+            + ("unsure, look: " + ", ".join("f%d “%s” conf %.0f at x %d y %d" % (u["frame"], u["text"], u["conf"], *u["at"])
+                                             for u in unsure[:4]) + "; " if unsure else "")
+            + f"{len(ignored) - len(unsure)} low-conf/shape tokens ignored), stray text "
+            f"{len([s for s in stray if s['kind'] == 'text'])} (reliable on the dark ground and for glyphs standing clear "
+            "on a bot, its screen or Diablo; single digits and glyphs touching an eye, crack, claw or Diablo's outline "
+            "are left to the G5/G7 reviewers); "
             f"max words on screen {max(max_words_cfg, max_words_ocr)} (config {max_words_cfg}, OCR {max_words_ocr}); "
             + (f"smallest glyphs “{min_size[3]}” x-height {fnum(min_size[1], 0)} px, cap/ascender {fnum(min_size[2], 0)} px "
                f"→ ≈{min_size[0]:.0f} px type (≥ {MIN_GLYPH_PX}); " if min_size else "")

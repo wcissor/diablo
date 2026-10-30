@@ -10,7 +10,10 @@ voice status and manual verdicts. Then runs the gates three ways:
   full    everything present (PNG sequence, voice cut, manual verdicts)
   mp4     no PNG sequence (frames decoded from the main cut), voice cut skipped, no manual.json
   empty   an empty root (nothing may crash)
-checks the reports, and deletes out/qa/_selftest unless --keep.
+plus in-process checks: the voice-status rules (a missing voice cut is allowed only when the status says
+skipped and why; "ok" without the cut fails G1 and G10), an undecodable main cut next to a partial PNG
+sequence (the PNGs fill in), and a number printed on a bot (found) vs a clean frame (nothing).
+Checks the reports, and deletes out/qa/_selftest unless --keep.
 """
 
 from __future__ import annotations
@@ -250,12 +253,77 @@ def expect(found: dict[str, str], want: dict[str, str], label: str) -> list[str]
     return [f"{label}: {g} is {found.get(g)}, expected {s}" for g, s in want.items() if found.get(g) != s]
 
 
+def rg_module():
+    sys.path.insert(0, str(REEL / "scripts/qa"))
+    import run_gates  # noqa: PLC0415
+
+    return run_gates
+
+
+def unit_checks(root: Path) -> list[str]:
+    """Fast in-process checks: voice-status rules, the PNG fill-in behind a broken cut, digits on a bot."""
+    rg = rg_module()
+    errors: list[str] = []
+    root.mkdir(parents=True, exist_ok=True)
+    ctx = rg.Ctx(root)
+    ctx.tmp.mkdir(parents=True, exist_ok=True)
+    (root / "audio/build").mkdir(parents=True, exist_ok=True)
+    vs_path = root / "audio/build/voice-status.json"
+    # 1. a missing voice cut is fine only when voice-status.json says skipped, with a reason
+    cases = [({"ok": False, "source": None, "reasons": {"elevenlabs": "no key", "piper": "blocked"},
+               "note": "No voice source worked"}, True, "skipped"),
+             ({"status": "skipped", "reason": "no TTS engine"}, True, "skipped"),
+             ({"ok": True, "source": "elevenlabs", "reasons": {"elevenlabs": "ok"}}, False, "voice generated (engine elevenlabs)"),
+             ({"status": "ok", "engine": "piper"}, False, "voice generated (engine piper)"),
+             ({"ok": False}, False, "gives no reason"),
+             ({"foo": 1}, False, "neither ok nor skipped"),
+             (None, False, "no audio/build/voice-status.json")]
+    for data, want_ok, want_text in cases:
+        if data is None:
+            vs_path.unlink(missing_ok=True)
+        else:
+            vs_path.write_text(json.dumps(data))
+        ok, text = rg.voice_cut_absent(ctx)
+        if ok != want_ok or want_text not in text:
+            errors.append(f"unit voice-status {data}: got ({ok}, {text!r}), expected ({want_ok}, …{want_text}…)")
+    # 2. an undecodable main cut next to a partial PNG sequence: the PNGs still feed the stills
+    fdir = root / "out/frames"
+    fdir.mkdir(parents=True, exist_ok=True)
+    have = [0, 30, 300, 405, 597, 598]
+    for f in have:
+        frame_image(f).save(fdir / f"frame-{f:03d}.png", compress_level=1)
+    (root / "out").mkdir(exist_ok=True)
+    (root / "out/diablo-intro-20s.mp4").write_bytes(b"not an mp4 at all" * 100)
+    fr = rg.Frames(ctx)
+    fr.scan({30, 300, 405})
+    src = ctx.m.get("frames", {})
+    if sorted(int(i) for i in np.flatnonzero(fr.have)) != have or any(fr.get(f) is None for f in (30, 300, 405)):
+        errors.append(f"unit frames: broken cut + {len(have)} PNGs read {int(fr.have.sum())} frames ({src.get('source')})")
+    if src.get("frames_by_source", {}).get("png") != "0, 30, 300, 405, 597–598":
+        errors.append(f"unit frames: frames_by_source not recorded: {src.get('frames_by_source')}")
+    # 3. a number on a bot (dark on porcelain), which the whole-frame OCR misses, and nothing on a clean frame
+    none = lambda _t: False  # noqa: E731
+    clean = np.asarray(frame_image(405))
+    im = frame_image(405)
+    ImageDraw.Draw(im).text((222, 1050), "42", font=font("DejaVuSans-Bold.ttf", 60), fill=NIGHT)
+    got = [t["text"] for t in rg.still_tokens(ctx, np.asarray(im), 405, none, none)[0] if t["kind"] == "digit"]
+    if "42" not in got:
+        errors.append(f"unit digits: '42' on a bot not found (got {got})")
+    got_clean = [t["text"] for t in rg.still_tokens(ctx, clean, 405, none, none)[0] if t["kind"] == "digit"]
+    if got_clean:
+        errors.append(f"unit digits: clean frame reads digits {got_clean}")
+    shutil.rmtree(root, ignore_errors=True)
+    print("[selftest] unit checks: " + ("OK" if not errors else f"{len(errors)} failed"), flush=True)
+    return errors
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--keep", action="store_true", help="keep out/qa/_selftest")
     args = ap.parse_args()
     errors: list[str] = []
     try:
+        errors += unit_checks(ROOT / "unit")
         build(ROOT)
         full = gates(ROOT)
         errors += expect(full, {f"G{i}": "PASS" for i in range(1, 12)}, "full")
@@ -267,6 +335,14 @@ def main() -> int:
         mp4 = gates(ROOT)
         errors += expect(mp4, {"G1": "PASS", "G2": "PENDING", "G4": "PASS", "G5": "PENDING", "G8": "PASS", "G9": "PASS",
                                "G10": "PASS", "G11": "PENDING"}, "mp4")
+        # the voice was generated but its cut never rendered: G1 and G10 must fail
+        (ROOT / "audio/build/voice-status.json").write_text(json.dumps({"ok": True, "source": "selftest-tts"}))
+        rg = rg_module()
+        ctx = rg.Ctx(ROOT)
+        for name, res in (("G1", rg.g1_file(ctx)), ("G10", rg.g10_sound(ctx))):
+            if res.status != "FAIL" or "voice generated (engine selftest-tts) but voice cut" not in res.text:
+                errors.append(f"voice generated, cut missing: {name} is {res.status}: {res.text[-160:]}")
+        print("[selftest] voice generated without its cut: G1/G10 checked", flush=True)
         empty = ROOT / "empty"
         empty.mkdir()
         none = gates(empty)

@@ -21,6 +21,7 @@ export interface SceneState {
   tailBack?: TailProps; // behind the bots (clipped at the stage line)
   tailFront?: TailProps; // in front of the bots
   hands?: HandProps[];
+  handsBack?: HandProps[]; // behind the bots, rising from behind the stage line (clipped at it)
   bots: Record<BotKind, Omit<BotProps, 'kind' | 'frame'>>;
   shards?: { kind: BotKind; impacts: Pt[]; t: number; seed: string }[];
   flash?: boolean; // the impact flash: cream frame, every character a night silhouette
@@ -55,6 +56,13 @@ export const Scene: React.FC<{ s: SceneState; id: string }> = ({ s, id }) => {
         </g>
       ) : null}
       {s.head ? <DiabloHead {...s.head} silhouette={sil} /> : null}
+      {s.handsBack?.length ? (
+        <g clipPath={`url(#${id}-behind)`}>
+          {s.handsBack.map((h) => (
+            <Hand key={h.side} {...h} frame={s.frame} silhouette={sil} />
+          ))}
+        </g>
+      ) : null}
       {sil ? null : (
         // the bots' reflections in the glossy stage, fading out below it
         <g mask={`url(#${id}-refl)`}>

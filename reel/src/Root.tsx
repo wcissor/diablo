@@ -9,7 +9,7 @@ import { DiabloSheet } from './dev/DiabloSheet';
 export const RemotionRoot: React.FC = () => (
   <>
     <Composition id="IntroReel" component={IntroReel} durationInFrames={DURATION} fps={FPS} width={WIDTH} height={HEIGHT} />
-    <Composition id="Cover" component={Cover} durationInFrames={1} fps={FPS} width={WIDTH} height={HEIGHT} />
+    <Composition id="Cover" component={Cover} durationInFrames={DURATION} fps={FPS} width={WIDTH} height={HEIGHT} />
     {/* Dev sheets for checking the cast as stills while building. */}
     <Composition id="BotSheet" component={BotSheet} durationInFrames={DURATION} fps={FPS} width={WIDTH} height={HEIGHT} />
     <Composition id="DiabloSheet" component={DiabloSheet} durationInFrames={DURATION} fps={FPS} width={WIDTH} height={HEIGHT} />

@@ -128,4 +128,7 @@ export const SFX = {
   slitCloseAir: 588,
 };
 
+// out/cover.png: the scene at 6.0 s without its words (cracks glowing, Diablo looming).
+export const COVER_FRAME = 180;
+
 export const SCORE_FILE = 'audio/score.mp3'; // used instead of the synth score if present

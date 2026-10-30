@@ -5,7 +5,7 @@ import { EVENTS, SHOTS } from '../config';
 import type { BotKind } from '../geometry';
 import { BOTS, DIABLO_EYES_Y } from '../geometry';
 import type { BotPose, BotProps, CrackState, HandProps, Pt } from '../cast/types';
-import { botPoint } from '../cast/Bots';
+import { botBounds, botPoint } from '../cast/Bots';
 import {
   clamp,
   easeInCubic,
@@ -34,7 +34,7 @@ import {
   strikeCracks,
   strikeState,
 } from './story';
-import { clawTips } from '../cast/Hands';
+import { clawTips, handBounds } from '../cast/Hands';
 
 type BotsState = SceneState['bots'];
 const KINDS: BotKind[] = ['bubble', 'cube', 'orb'];
@@ -137,6 +137,12 @@ const handsUp = (f: number, side: 'left' | 'right'): HandProps => {
   };
 };
 
+const BOTS_TOP = Math.min(...(['bubble', 'cube', 'orb'] as BotKind[]).map((k) => botBounds(k).y0));
+const splitHands = (hs: HandProps[]) => ({
+  hands: hs.filter((h) => handBounds(h).y1 < BOTS_TOP - 4),
+  handsBack: hs.filter((h) => handBounds(h).y1 >= BOTS_TOP - 4),
+});
+
 export const shot2 = (f: number): SceneState => {
   const c = cower(f);
   const r = rise(f);
@@ -147,7 +153,9 @@ export const shot2 = (f: number): SceneState => {
     light: { level: 1, ry: LOW.ry },
     head: { dy: (1 - r) * RISE_FROM, eyes: { open: 1, look: { x: 0, y: 3 } }, clipBelowY: 1180 },
     tailBack: f >= EVENTS.tailSweep.from ? { crescent: tailSweep(f) } : undefined,
-    hands: f >= EVENTS.clawsUp.from - 4 ? [handsUp(f, 'left'), handsUp(f, 'right')] : undefined,
+    // the hands rise from behind the stage line, behind the bots, and come to
+    // the front only once they are clear above them (so the switch never shows)
+    ...(f >= EVENTS.clawsUp.from - 4 ? splitHands([handsUp(f, 'left'), handsUp(f, 'right')]) : {}),
     bots: mapBots((k) => {
       const g = gazeAt(k, eyesAt);
       return {

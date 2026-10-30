@@ -70,7 +70,11 @@ for (let f = 0; f < DURATION; f++) {
   }
   const eyes = s.head ? eyeCentres(s.head).filter((p) => p.y <= (s.head!.clipBelowY ?? Infinity)) : [];
   if (s.head?.eyesOnly) parts.push({ who: 'eyes', pts: eyes.map(C) });
-  for (const h of s.hands ?? []) parts.push({ who: `hand-${h.side}`, pts: corners(handBounds(h)).map(C) });
+  for (const h of [...(s.hands ?? []), ...(s.handsBack ?? [])]) {
+    const b = handBounds(h);
+    const clipped = s.handsBack?.includes(h) ? { ...b, y1: Math.min(b.y1, 1180) } : b; // the back layer is clipped at the stage line
+    if (clipped.y1 > clipped.y0) parts.push({ who: `hand-${h.side}`, pts: corners(clipped).map(C) });
+  }
   for (const t of [s.tailBack, s.tailFront]) {
     if (!t) continue;
     if (t.crescent) {

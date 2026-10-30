@@ -38,5 +38,6 @@ else
   echo "voice cut skipped: see audio/build/voice-status.json"
 fi
 
-npx remotion still src/index.ts Cover out/cover.png
+COVER_FRAME=$(node -e "console.log(require('./build/config.json').COVER_FRAME)")
+npx remotion still src/index.ts Cover out/cover.png --frame="$COVER_FRAME"
 ls -la out/*.mp4 out/cover.png out/captions.srt 2>/dev/null || true
