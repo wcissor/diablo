@@ -106,10 +106,11 @@ BACKGROUND = ["#000000", "#120309", "#2B0B16"]  # and blends between them
 PALETTE_DE = 12.0
 PALETTE_MIN_SHARE = 0.97
 NONBG_DE = 15.0  # a pixel this far from the background blends belongs to something
-RAIL_MAX_PX = 300
+RAIL_MAX_PX = 25  # anti-aliasing and glow allowance; a claw tip or a ring edge is more than this
 FLASH_JUMP = 0.10  # luma (0–1) above the neighbours' median
 SLOWMO_MAX_RATIO = 0.7
 CUT_MAX_DIST = 3  # frames
+CUT_FIND_SCORE, CUT_CONFIRM_SCORE = 4.0, 3.0  # change spike vs its neighbours: to find a cut / to confirm a planned one
 OCR_DIGIT_CONF = 60
 OCR_STRAY_CONF = 85
 OCR_TOKEN_PX = (12, 160)  # word-box heights that can be text here (the 120 px name is ~120 px with descenders)
@@ -140,10 +141,6 @@ def fnum(x, nd: int = 1) -> str:
     if x is None or (isinstance(x, float) and not math.isfinite(x)):
         return "n/a"
     return f"{x:.{nd}f}"
-
-
-def t_of(frame: float) -> float:
-    return frame / FPS
 
 
 def still_name(frame: int) -> str:
@@ -731,10 +728,14 @@ def voice_status(ctx: Ctx) -> tuple[str, dict | None]:
     except Exception as e:  # noqa: BLE001
         return f"voice-status.json unreadable ({e})", None
     if isinstance(j, dict):
-        for k in ("reason", "error", "message", "detail", "why", "status"):
-            if j.get(k):
-                engine = j.get("engine") or j.get("source")
-                return (f"{j[k]}" + (f" (engine: {engine})" if engine else "")), j
+        parts = [str(j[k]) for k in ("note", "reason", "error", "message", "detail", "why") if j.get(k)]
+        if isinstance(j.get("reasons"), dict):  # one reason per voice engine tried
+            parts.append("; ".join(f"{k}: {str(v)[:90]}" for k, v in j["reasons"].items()))
+        if not parts and j.get("status"):
+            parts.append(str(j["status"]))
+        if parts:
+            engine = j.get("engine") or j.get("source")
+            return " — ".join(parts) + (f" (engine: {engine})" if engine else ""), j
     return json.dumps(j)[:200], j
 
 
@@ -859,7 +860,7 @@ def rail_report(rgb: np.ndarray) -> dict:
         if sl is None:
             continue
         hgt, wid = sl[0].stop - sl[0].start, sl[1].stop - sl[1].start
-        if hgt <= 5 and wid >= 20:  # the stage line, not action
+        if hgt <= 3 or (hgt <= 5 and wid >= 20):  # the stage line (and its fading end), not action
             mask[sl][lab[sl] == k] = False
     split = RAIL_GATED_Y1 - RAIL.y0
     upper, lower = mask[:split], mask[split:]
@@ -1010,23 +1011,30 @@ def glyph_metrics(rgb: np.ndarray, box: Box) -> dict | None:
 def ocr_region(ctx: Ctx, rgb: np.ndarray, box: Box, name: str, psm: int = 6) -> dict:
     crop = rgb[box.y0:box.y1, box.x0:box.x1]
     rows = tesseract(ocr_prep(crop, 2), psm, ctx.tmp, f"{name}-psm{psm}")
+
+    def to_frame(r: dict) -> Box:  # tesseract box (2× scale, 20 px border) → frame pixels
+        return Box(int(box.x0 + (r["left"] - 20) / 2), int(box.y0 + (r["top"] - 20) / 2),
+                   int(math.ceil(box.x0 + (r["left"] + r["width"] - 20) / 2)),
+                   int(math.ceil(box.y0 + (r["top"] + r["height"] - 20) / 2)))
+
     lines: dict[tuple, dict] = {}
     for r in rows:
         key = (int(r.get("block_num", 0)), int(r.get("par_num", 0)), int(r.get("line_num", 0)))
         if int(r.get("level", 0)) == 4:
-            lines.setdefault(key, {"words": []})["box"] = Box(
-                int(box.x0 + (r["left"] - 20) / 2), int(box.y0 + (r["top"] - 20) / 2),
-                int(math.ceil(box.x0 + (r["left"] + r["width"] - 20) / 2)),
-                int(math.ceil(box.y0 + (r["top"] + r["height"] - 20) / 2)))
+            lines.setdefault(key, {"words": []})["box"] = to_frame(r)
         elif int(r.get("level", 0)) == 5 and r["text"]:
             lines.setdefault(key, {"words": []})["words"].append(
-                {"text": r["text"], "conf": r.get("conf", -1), "height_px": r.get("height", 0) / 2})
+                {"text": r["text"], "conf": r.get("conf", -1), "height_px": r.get("height", 0) / 2, "box": to_frame(r)})
     out_lines = []
     for key in sorted(lines):
         ln = lines[key]
         if not ln["words"] or "box" not in ln:
             continue
-        gm = glyph_metrics(rgb, ln["box"])
+        # measure glyphs on the real words only (a stray mark read as "~" must not widen the line)
+        real = [w["box"] for w in ln["words"] if re.search(r"[A-Za-z0-9]", w["text"]) and w["conf"] >= 30]
+        mbox = (Box(min(b.x0 for b in real), min(b.y0 for b in real), max(b.x1 for b in real), max(b.y1 for b in real))
+                if real else ln["box"])
+        gm = glyph_metrics(rgb, mbox)
         out_lines.append({"text": " ".join(w["text"] for w in ln["words"]), "box": ln["box"], "words": ln["words"],
                           "metrics": gm})
     return {"text": " ".join(l["text"] for l in out_lines), "lines": out_lines, "psm": psm}
@@ -1054,9 +1062,18 @@ def g4_text(ctx: Ctx, fr: Frames) -> Result:
         return Result(MISSING, "build/config.json missing (run `npx tsx scripts/export-config.ts`)")
     shots, end = ctx.shots() or [], ctx.config.get("END_CARD") or {}
     targets = ocr_targets(ctx)
-    vocab = set()
-    for _, lines, _, _ in targets:
-        vocab.update(norm_text(" ".join(lines)).split())
+    # the expected words, run together: OCR may split a word ("learn" "s") or join two, so a token is
+    # expected text when it occurs anywhere in that run
+    blob = "".join(norm_text(" ".join(lines)).replace(" ", "") for _, lines, _, _ in targets)
+    words = {w for _, lines, _, _ in targets for w in norm_text(" ".join(lines)).split()}
+
+    def expected(token: str) -> bool:
+        parts = norm_text(token).split()
+        return bool(parts) and all(part in blob for part in parts)
+
+    def expected_word(token: str) -> bool:  # whole words only: "A1" may be "AI", but "10" is never part of "diablo"
+        parts = norm_text(token).split()
+        return bool(parts) and all(part in words for part in parts)
     per, problems = [], []
     max_words_cfg = max([word_count(" ".join(s.get("words", []))) for s in shots]
                         + [word_count(f"{end.get('name', '')} {end.get('url', '')}")])
@@ -1077,7 +1094,7 @@ def g4_text(ctx: Ctx, fr: Frames) -> Result:
         n_words = sum(1 for l in o["lines"] for w in l["words"] if w["conf"] >= 50 and re.search(r"[A-Za-z0-9]", w["text"]))
         max_words_ocr = max(max_words_ocr, n_words)
         digits = [w["text"] for l in o["lines"] for w in l["words"] if re.search(r"[0-9%]", w["text"])
-                  and not set(norm_text(w["text"]).split()) <= vocab]
+                  and not expected_word(w["text"])]
         for l in o["lines"]:
             gm = l["metrics"]
             if gm:
@@ -1099,14 +1116,13 @@ def g4_text(ctx: Ctx, fr: Frames) -> Result:
             tok, conf, hgt = r["text"], float(r.get("conf", -1)), float(r.get("height", 0))
             if int(r.get("level", 0)) != 5 or not tok:
                 continue
-            parts = set(norm_text(tok).split())
             text_sized = OCR_TOKEN_PX[0] <= hgt <= OCR_TOKEN_PX[1]
             tokinfo = {"frame": f, "text": tok, "conf": conf, "height_px": hgt,
                        "at": [int(r.get("left", 0)) - 20, int(r.get("top", 0)) - 20]}
-            if re.search(r"[0-9%]", tok) and not parts <= vocab:
+            if re.search(r"[0-9%]", tok) and not expected_word(tok):
                 good = conf >= OCR_DIGIT_CONF and text_sized
                 (stray if good else ignored).append({**tokinfo, "kind": "digit"})
-            elif conf >= OCR_STRAY_CONF and text_sized and len(re.sub(r"[^A-Za-z]", "", tok)) >= 2 and not parts <= vocab:
+            elif conf >= OCR_STRAY_CONF and text_sized and len(re.sub(r"[^A-Za-z]", "", tok)) >= 2 and not expected(tok):
                 stray.append({**tokinfo, "kind": "text"})
     for s in stray:
         problems.append(f"f{s['frame']}: stray {s['kind']} “{s['text']}” (conf {s['conf']:.0f})")
@@ -1273,13 +1289,13 @@ def g8_motion(ctx: Ctx, fr: Frames) -> Result:
     for i in range(1, NF):
         nb = [D[j] for j in range(max(1, i - 6), min(NF, i + 7)) if abs(j - i) > 1 and j not in excl]
         score[i] = D[i] / (float(np.median(nb)) + 1e-4) if nb else 0
-    spikes = [i for i in range(1, NF) if i not in excl and score[i] >= 4 and D[i] >= 0.006
-              and score[i] == score[max(1, i - 2):i + 3].max()]
+    peaks = [i for i in range(1, NF) if i not in excl and D[i] >= 0.006 and score[i] == score[max(1, i - 2):i + 3].max()]
+    spikes = [i for i in peaks if score[i] >= CUT_FIND_SCORE]
     cuts_cfg = (ctx.config or {}).get("CUTS") or []
     wipe = ev.get("wipe") or {}
     cut_info, detected = [], []
-    for c in cuts_cfg:
-        hit = [s for s in spikes if abs(s - c) <= 1]
+    for c in cuts_cfg:  # a planned cut needs a smaller spike (shot 3 is the same angle, pushed in)
+        hit = [s for s in peaks if abs(s - c) <= 1 and score[s] >= CUT_CONFIRM_SCORE]
         how = "spike" if hit else None
         if not hit and wipe and c == wipe.get("from"):
             base = float(np.median(D[max(1, c - 12):c - 1]))
@@ -1346,7 +1362,7 @@ def g8_motion(ctx: Ctx, fr: Frames) -> Result:
                               for ci in cut_info) + "]"
             + f" vs {len(on['onsets_s'])} onsets in {ctx.rel(src)} (≤ {CUT_MAX_DIST} f) "
             + ("ok" if cuts_ok and onset_ok else "FAIL")
-            + (f"; other spikes {extra}" if extra else ""))
+            + (f"; other change spikes (flicker, shake, effects; info) {extra}" if extra else ""))
     ok &= cuts_ok and onset_ok
     ctx.m["G8"] = m
     return Result(PASS if ok else FAIL, "; ".join(parts))

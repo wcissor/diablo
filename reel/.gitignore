@@ -5,3 +5,5 @@ out/dev/
 out/qa/_*/
 audio/build/
 *.tsbuildinfo
+__pycache__/
+*.pyc
