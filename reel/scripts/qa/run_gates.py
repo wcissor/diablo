@@ -10,7 +10,8 @@ need them say MISSING (or FAIL) and the rest still run.
 Reads
   out/diablo-intro-20s.mp4           main cut (score, sound, words)
   out/diablo-intro-20s-vo.mp4        voice cut; if absent, audio/build/voice-status.json says why
-  out/frames/frame-000.png … 599     the rendered PNG sequence (else the main cut is decoded)
+  out/frames/frame-000.png … 599     the rendered PNG sequence (if incomplete, the main cut is decoded and
+                                     any frame it cannot give is taken from the PNGs on disk)
   build/config.json                  `npx tsx scripts/export-config.ts`
   audio/build/score.wav, sfx.wav, mix-main.wav, voice.wav (optional)
   out/captions.srt                   captions for the voice cut
@@ -38,9 +39,14 @@ What is measured (thresholds are the constants below)
   G3  every 5th frame + the stills: cream glyphs above y 520 (thick strokes grown from the centre column)
       → bbox vs the words zone and distance to the nearest non-background pixel; right-rail pixels
       (x ≥ 936, y 800–1248, stage line, wipe and flash excluded); end-card text inside the core area
-  G4  tesseract on the words region (2×, psm 6 then 4) one frame per shot and the end card; psm 11 on
-      whole stills for digits/% and stray words (text-sized tokens only); glyph heights from connected
-      components; WCAG contrast of glyph colour vs the brightest 5 % of the surrounding background
+  G4  tesseract on the words region (2×, psm 6 then 4) one frame per shot and the end card; on whole
+      stills psm 11 (inverted: light glyphs on the dark ground) and psm 12 (plain grey: dark glyphs on
+      porcelain) for digits/% and stray words (text-sized tokens only; gold on porcelain and glyphs over
+      Diablo are missed, so the G5/G7 reviewers check "no digits or letters on the bots or on Diablo");
+      glyph heights from connected components; WCAG contrast of glyph colour vs the brightest 5 % of the
+      surrounding background
+  G1/G10 a missing voice cut is allowed only when voice-status.json says the voice was skipped (ok false
+      or status skipped/failed) and gives a reason; "ok" with no voice cut fails both gates
   G7  share of pixels within ΔE76 12 of a palette colour or an sRGB blend of two
   G8  luma flash detection, phase-correlation shake, noise-floored motion ratio, frame-change spikes vs
       spectral-flux onsets (and hard stops) of audio/build/score.wav
@@ -412,14 +418,15 @@ class Frames:
                 return p
         return None
 
-    def _png_source(self):
-        for i in range(NF):
-            p = self._png_path(i)
-            if p is not None:
-                try:
-                    yield i, load_rgb(p)
-                except Exception as e:  # noqa: BLE001
-                    log(f"unreadable {p.name}: {e}")
+    def _png_source(self, pngs: dict[int, Path]):
+        """The PNGs of the frames not read yet (so it can fill in after the mp4 pass)."""
+        for i in sorted(pngs):
+            if self.have[i]:
+                continue
+            try:
+                yield i, load_rgb(pngs[i])
+            except Exception as e:  # noqa: BLE001  (a PNG being written by a render in progress)
+                log(f"unreadable {pngs[i].name}: {e}")
 
     def _mp4_source(self):
         cmd = ["ffmpeg", "-v", "error", "-i", str(self.ctx.main), "-map", "0:v:0", "-vf", f"scale={W}:{H}",
@@ -437,14 +444,24 @@ class Frames:
             proc.wait()
 
     def scan(self, keep: set[int]) -> None:
-        n_png = sum(1 for i in range(NF) if self._png_path(i) is not None)
+        pngs = {i: p for i in range(NF) if (p := self._png_path(i)) is not None}
+        n_png = len(pngs)
+        sources: list[tuple[str, object]] = []
+        notes: list[str] = []
         if n_png == NF:
-            self.kind, self.desc, source = "png", f"PNG sequence ({NF} frames)", self._png_source()
+            self.kind, self.desc = "png", f"PNG sequence ({NF} frames)"
+            sources = [("png", self._png_source(pngs))]
         elif self.ctx.main.exists() and have("ffmpeg"):
-            self.kind, source = "mp4", self._mp4_source()
+            # the complete main cut first; whatever it cannot give (undecodable, short) comes from the PNGs on disk
+            self.kind = "mp4"
             self.desc = f"decoded main cut (PNG sequence {'incomplete: ' + str(n_png) if n_png else 'absent'})"
+            sources = [("mp4", self._mp4_source()), ("png", self._png_source(pngs))]
+            newest_png = max((p.stat().st_mtime for p in pngs.values()), default=0.0)
+            if newest_png > self.ctx.main.stat().st_mtime:
+                notes.append("the main cut is older than the newest PNG (stale cut, or a render in progress?)")
         elif n_png:
-            self.kind, self.desc, source = "png", f"partial PNG sequence ({n_png}/{NF})", self._png_source()
+            self.kind, self.desc = "png", f"partial PNG sequence ({n_png}/{NF})"
+            sources = [("png", self._png_source(pngs))]
         else:
             self.ctx.m["frames"] = {"source": self.desc}
             return
@@ -452,26 +469,38 @@ class Frames:
         r0, r1 = self.SHAKE_ROWS
         # thumbnails: every 5th frame for the contact sheet, and every 5th from each shot's first frame for its strip
         thumbs = set(range(0, NF, 5)) | {f for s in self.ctx.shots() or [] for f in range(s["from"], s["to"] + 1, 5)}
-        for i, rgb in source:
-            y = luma_of(rgb)
-            self.have[i] = True
-            self.luma[i] = float(y.mean())
-            sub = rgb[::2, ::2]
-            self.lum_lin[i] = float((LIN_LUT[sub[..., 0]] * LUMA[0] + LIN_LUT[sub[..., 1]] * LUMA[1]
-                                     + LIN_LUT[sub[..., 2]] * LUMA[2]).mean())
-            self.small[i] = y.reshape(H // 8, 8, W // 8, 8).mean(axis=(1, 3))
-            if i in self.SHAKE_RANGE:
-                self.shake[i] = y[r0:r1].reshape((r1 - r0) // 2, 2, W // 2, 2).mean(axis=(1, 3))
-            if i in thumbs:
-                self.thumbs[i] = Image.fromarray(rgb).reduce(10)
-            if i in keep:
-                self.full[i] = np.array(rgb, copy=True)
-            if i % 5 == 0 or i in keep:
-                self.layout[i] = layout_sample(self.ctx, i, rgb)
-            if i % 100 == 99:
-                log(f"  frame {i + 1}/{NF}")
-        self.desc += f", {int(self.have.sum())} read"
-        self.ctx.m["frames"] = {"source": self.desc, "count": int(self.have.sum())}
+        by_source: dict[str, list[int]] = {}
+        for name, source in sources:
+            for i, rgb in source:
+                by_source.setdefault(name, []).append(i)
+                self._take(i, rgb, keep, thumbs, r0, r1)
+        n = int(self.have.sum())
+        if self.kind == "mp4" and by_source.get("png"):
+            self.desc += f", {len(by_source.get('mp4', []))} from the cut + {len(by_source['png'])} from PNGs"
+        self.desc += f", {n} read" + (f"; {'; '.join(notes)}" if notes else "")
+        self.ctx.m["frames"] = {"source": self.desc, "count": n, "notes": notes,
+                                "frames_by_source": {k: frame_ranges(v, 1) for k, v in by_source.items()},
+                                "missing": frame_ranges([i for i in range(NF) if not self.have[i]], 1)}
+
+    def _take(self, i: int, rgb: np.ndarray, keep: set[int], thumbs: set[int], r0: int, r1: int) -> None:
+        """Measure one frame."""
+        y = luma_of(rgb)
+        self.have[i] = True
+        self.luma[i] = float(y.mean())
+        sub = rgb[::2, ::2]
+        self.lum_lin[i] = float((LIN_LUT[sub[..., 0]] * LUMA[0] + LIN_LUT[sub[..., 1]] * LUMA[1]
+                                 + LIN_LUT[sub[..., 2]] * LUMA[2]).mean())
+        self.small[i] = y.reshape(H // 8, 8, W // 8, 8).mean(axis=(1, 3))
+        if i in self.SHAKE_RANGE:
+            self.shake[i] = y[r0:r1].reshape((r1 - r0) // 2, 2, W // 2, 2).mean(axis=(1, 3))
+        if i in thumbs:
+            self.thumbs[i] = Image.fromarray(rgb).reduce(10)
+        if i in keep:
+            self.full[i] = np.array(rgb, copy=True)
+        if i % 5 == 0 or i in keep:
+            self.layout[i] = layout_sample(self.ctx, i, rgb)
+        if i % 100 == 99:
+            log(f"  frame {i + 1}/{NF}")
 
     def get(self, i: int) -> np.ndarray | None:
         return self.full.get(i)
@@ -741,24 +770,63 @@ def cut_summary(i: dict) -> str:
             f"{(i.get('a_bitrate') or 0) / 1000:.0f} kb/s, faststart {'yes' if i.get('faststart') else 'NO'}")
 
 
-def voice_status(ctx: Ctx) -> tuple[str, dict | None]:
+@dataclass
+class VoiceStatus:
+    state: str  # "generated" | "skipped" | "unclear" (says neither) | "missing" | "unreadable"
+    why: str  # the stated reason(s), "" if none
+    engine: str | None
+    data: dict | None
+
+
+VOICE_OK_WORDS = {"ok", "done", "generated", "success", "succeeded"}
+VOICE_SKIP_WORDS = {"skipped", "skip", "failed", "fail", "error", "unavailable"}
+
+
+def voice_status(ctx: Ctx) -> VoiceStatus:
+    """audio/build/voice-status.json as scripts/audio/voice.py writes it: {ok, source, reasons{engine: why}, note}.
+    A boolean `ok` decides; otherwise a `status` word does."""
     p = ctx.audio / "voice-status.json"
     if not p.exists():
-        return "no audio/build/voice-status.json", None
+        return VoiceStatus("missing", "no audio/build/voice-status.json", None, None)
     try:
         j = json.loads(p.read_text())
     except Exception as e:  # noqa: BLE001
-        return f"voice-status.json unreadable ({e})", None
-    if isinstance(j, dict):
-        parts = [str(j[k]) for k in ("note", "reason", "error", "message", "detail", "why") if j.get(k)]
-        if isinstance(j.get("reasons"), dict):  # one reason per voice engine tried
-            parts.append("; ".join(f"{k}: {str(v)[:90]}" for k, v in j["reasons"].items()))
-        if not parts and j.get("status"):
-            parts.append(str(j["status"]))
-        if parts:
-            engine = j.get("engine") or j.get("source")
-            return " — ".join(parts) + (f" (engine: {engine})" if engine else ""), j
-    return json.dumps(j)[:200], j
+        return VoiceStatus("unreadable", f"voice-status.json unreadable ({e})", None, None)
+    if not isinstance(j, dict):
+        return VoiceStatus("unclear", "", None, None)
+    status, ok = str(j.get("status") or "").strip().lower(), j.get("ok")
+    if ok is True or (not isinstance(ok, bool) and status in VOICE_OK_WORDS):
+        state = "generated"
+    elif ok is False or status in VOICE_SKIP_WORDS:
+        state = "skipped"
+    else:
+        state = "unclear"
+    parts = [str(j[k]) for k in ("note", "reason", "error", "message", "detail", "why") if j.get(k)]
+    reasons = j.get("reasons")
+    if isinstance(reasons, dict):  # one entry per voice engine tried; the one that worked says "ok"
+        failed = {k: v for k, v in reasons.items() if str(v).strip().lower() != "ok"}
+        if failed:
+            parts.append("; ".join(f"{k}: {str(v)[:90]}" for k, v in failed.items()))
+    elif isinstance(reasons, list) and reasons:
+        parts.append("; ".join(str(v)[:90] for v in reasons))
+    engine = j.get("source") or j.get("engine")
+    return VoiceStatus(state, " — ".join(parts), str(engine) if engine else None, j)
+
+
+def voice_cut_absent(ctx: Ctx) -> tuple[bool, str]:
+    """The voice cut is not on disk: is that allowed? Only when voice-status.json says the voice was skipped and why."""
+    vs = voice_status(ctx)
+    ctx.m.setdefault("voice_status", {"state": vs.state, "why": vs.why, "engine": vs.engine})
+    if vs.state == "skipped":
+        if vs.why:
+            return True, f"voice cut skipped: {vs.why}"
+        return False, "voice cut skipped, but voice-status.json gives no reason"
+    if vs.state == "generated":
+        return False, f"voice generated (engine {vs.engine or '?'}) but voice cut {ctx.rel(ctx.vo)} not rendered"
+    if vs.state == "unclear":
+        return False, (f"voice cut {ctx.rel(ctx.vo)} missing and voice-status.json says neither ok nor skipped "
+                       f"({json.dumps(vs.data)[:120] if vs.data is not None else 'not an object'})")
+    return False, f"voice cut {ctx.rel(ctx.vo)} missing and {vs.why}"
 
 
 def g1_file(ctx: Ctx) -> Result:
@@ -775,11 +843,12 @@ def g1_file(ctx: Ctx) -> Result:
     if vo.get("present"):
         text += f" · voice cut: {cut_summary(vo)}" + flags(vo, pv)
         vo_ok = not pv
+        if voice_status(ctx).state == "skipped":
+            text += " [note: voice-status.json says the voice was skipped: is this voice cut stale?]"
     else:
-        why, _ = voice_status(ctx)
-        ctx.m["G1"]["vo_skipped_reason"] = why
-        text += f" · voice cut skipped: {why}"
-        vo_ok = (ctx.audio / "voice-status.json").exists()
+        vo_ok, why = voice_cut_absent(ctx)
+        ctx.m["G1"]["vo_absent"] = {"allowed": vo_ok, "text": why}
+        text += f" · {why}" + ("" if vo_ok else " [FAIL]")
     if not main.get("present"):
         return Result(MISSING, f"main cut {ctx.rel(ctx.main)} missing" + text[text.find(" · "):])
     return Result(PASS if (not pm and vo_ok) else FAIL, text)
@@ -1139,6 +1208,45 @@ def ocr_targets(ctx: Ctx) -> list[tuple[int, list[str], Box, str]]:
     return targets
 
 
+# The whole-still passes: (name, psm, image maker, padding the maker adds)
+STILL_OCR_PASSES = [
+    # light glyphs on the dark ground: brightness stretched and inverted, sparse text
+    ("psm11-inverted", 11, lambda rgb: ocr_prep(rgb, 1), 20),
+    # dark glyphs on the light shapes (a number on a bot's face or chest): plain grey, sparse text with layout
+    ("psm12-grey", 12, lambda rgb: Image.fromarray(rgb).convert("L"), 0),
+]
+
+
+def still_tokens(ctx: Ctx, rgb: np.ndarray, f: int, expected, expected_word) -> tuple[list[dict], list[dict]]:
+    """Digits, % and stray words tesseract finds anywhere in one frame → (counted, ignored).
+    Digits count at conf ≥ OCR_DIGIT_CONF, words at ≥ OCR_STRAY_CONF, both only when text-sized; the expected
+    words never count. Reliable for light glyphs on the dark ground and dark glyphs on porcelain; gold on porcelain
+    and glyphs over Diablo slip through every mode tried, so the G5/G7 reviewers look for those."""
+    found: dict[tuple, dict] = {}
+    ignored: list[dict] = []
+    for name, psm, make, pad in STILL_OCR_PASSES:
+        for r in tesseract(make(rgb), psm, ctx.tmp, f"full-{f}-{name}"):
+            tok, conf, hgt = r["text"], float(r.get("conf", -1)), float(r.get("height", 0))
+            if int(r.get("level", 0)) != 5 or not tok:
+                continue
+            text_sized = OCR_TOKEN_PX[0] <= hgt <= OCR_TOKEN_PX[1]
+            x, y = int(r.get("left", 0)) - pad, int(r.get("top", 0)) - pad
+            info = {"frame": f, "text": tok, "conf": conf, "height_px": hgt, "at": [x, y], "pass": name}
+            if re.search(r"[0-9%]", tok) and not expected_word(tok):
+                if not (conf >= OCR_DIGIT_CONF and text_sized):
+                    ignored.append({**info, "kind": "digit"})
+                    continue
+                info["kind"] = "digit"
+            elif conf >= OCR_STRAY_CONF and text_sized and len(re.sub(r"[^A-Za-z]", "", tok)) >= 2 and not expected(tok):
+                info["kind"] = "text"
+            else:
+                continue
+            key = (norm_text(tok, False), round(x / 40), round(y / 40))  # both passes reading the same token: once
+            if key not in found or conf > found[key]["conf"]:
+                found[key] = info
+    return list(found.values()), ignored
+
+
 def g4_text(ctx: Ctx, fr: Frames) -> Result:
     if not have("tesseract"):
         return Result(MISSING, "tesseract not installed")
@@ -1194,20 +1302,10 @@ def g4_text(ctx: Ctx, fr: Frames) -> Result:
     stray, ignored = [], []
     for f in sorted(set(STILL_FRAMES) | {t[0] for t in targets}):
         rgb = fr.get(f)
-        if rgb is None:
-            continue
-        for r in tesseract(ocr_prep(rgb, 1), 11, ctx.tmp, f"full-{f}"):
-            tok, conf, hgt = r["text"], float(r.get("conf", -1)), float(r.get("height", 0))
-            if int(r.get("level", 0)) != 5 or not tok:
-                continue
-            text_sized = OCR_TOKEN_PX[0] <= hgt <= OCR_TOKEN_PX[1]
-            tokinfo = {"frame": f, "text": tok, "conf": conf, "height_px": hgt,
-                       "at": [int(r.get("left", 0)) - 20, int(r.get("top", 0)) - 20]}
-            if re.search(r"[0-9%]", tok) and not expected_word(tok):
-                good = conf >= OCR_DIGIT_CONF and text_sized
-                (stray if good else ignored).append({**tokinfo, "kind": "digit"})
-            elif conf >= OCR_STRAY_CONF and text_sized and len(re.sub(r"[^A-Za-z]", "", tok)) >= 2 and not expected(tok):
-                stray.append({**tokinfo, "kind": "text"})
+        if rgb is not None:
+            s_, i_ = still_tokens(ctx, rgb, f, expected, expected_word)
+            stray += s_
+            ignored += i_
     for s in stray:
         problems.append(f"f{s['frame']}: stray {s['kind']} “{s['text']}” (conf {s['conf']:.0f})")
     min_size = min(sizes, key=lambda s: s[0]) if sizes else None
@@ -1228,9 +1326,10 @@ def g4_text(ctx: Ctx, fr: Frames) -> Result:
     matched = sum(1 for p in per if p["match"])
     read = ", ".join("f%d “%s”" % (p["frame"], p["ocr"]) for p in per)
     text = (f"OCR (tesseract psm 6, psm 4 fallback, 2×) matched {matched}/{len(targets)} lines to config ({read}); "
-            f"full-still OCR (psm 11): digits/% {len([s for s in stray if s['kind'] == 'digit'])} (conf ≥ {OCR_DIGIT_CONF}, "
-            f"text-sized; {len(ignored)} low-conf/shape tokens ignored), stray text "
-            f"{len([s for s in stray if s['kind'] == 'text'])}; "
+            f"full-still OCR (psm 11 inverted + psm 12 grey): digits/% {len([s for s in stray if s['kind'] == 'digit'])} "
+            f"(conf ≥ {OCR_DIGIT_CONF}, text-sized; {len(ignored)} low-conf/shape tokens ignored), stray text "
+            f"{len([s for s in stray if s['kind'] == 'text'])} (reliable on the dark ground and for dark glyphs on "
+            "porcelain only: gold on porcelain and anything over Diablo are left to the G5/G7 reviewers); "
             f"max words on screen {max(max_words_cfg, max_words_ocr)} (config {max_words_cfg}, OCR {max_words_ocr}); "
             + (f"smallest glyphs “{min_size[3]}” x-height {fnum(min_size[1], 0)} px, cap/ascender {fnum(min_size[2], 0)} px "
                f"→ ≈{min_size[0]:.0f} px type (≥ {MIN_GLYPH_PX}); " if min_size else "")
@@ -1279,7 +1378,8 @@ def g7_style(ctx: Ctx, fr: Frames) -> Result:
             + f"; min {100 * min(p['share'] for p in per.values()):.1f}% (≥ {100 * PALETTE_MIN_SHARE:g}%)")
     if low:
         text += " · off-palette: " + "; ".join(f"f{f} {per[f]['top_off_palette'][:3]}" for f in low)
-    text += f" · {manual_text(man)}"
+    text += (f" · reviewer (flat vector, engraved hatching, no glow; no digits or letters on the bots or on Diablo): "
+             f"{manual_text(man)}")
     return Result(combine(not low, man), text)
 
 
@@ -1568,7 +1668,7 @@ def g10_sound(ctx: Ctx) -> Result:
         exp = [norm_text(ln["text"]) for ln in lines]
         srt = parse_srt(ctx.captions)
         srt_ok = bool(srt) and [norm_text(s["text"]) for s in srt] == exp
-        _, vs = voice_status(ctx)
+        vs = voice_status(ctx).data
         vs_lines = None
         if isinstance(vs, dict) and isinstance(vs.get("lines"), list):
             vs_lines = [norm_text(l.get("text", "") if isinstance(l, dict) else str(l)) for l in vs["lines"]]
@@ -1582,8 +1682,10 @@ def g10_sound(ctx: Ctx) -> Result:
         ok &= v_ok and on_ok and words_ok
         parts.append("voice cut: " + ", ".join(vparts))
     else:
-        why, _ = voice_status(ctx)
-        parts.append(f"voice cut skipped: {why}")
+        absent_ok, why = voice_cut_absent(ctx)
+        m["vo_absent"] = {"allowed": absent_ok, "text": why}
+        ok &= absent_ok
+        parts.append(why + ("" if absent_ok else " FAIL"))
     ctx.m["G10"] = m
     return Result(PASS if ok else FAIL, "; ".join(parts))
 
@@ -1617,7 +1719,8 @@ def main() -> int:
         2: lambda: g2_stills(ctx, fr),
         3: lambda: g3_safe(ctx, fr),
         4: lambda: g4_text(ctx, fr),
-        5: lambda: g_manual(ctx, "G5", "no charts, graphs, axes, callouts, code, UI or dashboards (reviewer)"),
+        5: lambda: g_manual(ctx, "G5", "no charts, graphs, axes, callouts, code, UI or dashboards, and no digits or "
+                                       "letters on the bots or on Diablo (reviewer)"),
         6: lambda: g_manual(ctx, "G6", "fresh reviewer: does any bot resemble a real AI product's icon or logo?"),
         7: lambda: g7_style(ctx, fr),
         8: lambda: g8_motion(ctx, fr),

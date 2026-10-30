@@ -41,6 +41,8 @@ PAN = {k: (x - 540) / 540 * 0.9 for k, x in BOT_X.items()}
 CRACK_BOT = {'crack1': 'orb', 'crack2': 'cube'}
 STRIKE_CLIP_DB = 6.0  # the strike group's peaks are soft-clipped this far down (4x oversampled)
 BLINK_REOPEN_FRAMES = 4  # the softer tick as a blinking bot reopens its eyes (frames after the blink)
+CRACK_BURST_S = 0.45     # a porcelain crack's micro-cracks thin out over this long
+HAIRLINE = (5, 0.009)    # the hairline crack at crack1.at: grains, seconds apart
 
 # Mix levels (dB) — the balance between elements. The whole mix is then
 # normalised to -18 LUFS, so these are relative.
@@ -217,7 +219,7 @@ def grain(rng, fscale=1.0, tscale=1.0):
     return x
 
 
-def porcelain_crack(rng, size=1.0, burst=0.45):
+def porcelain_crack(rng, size=1.0, burst=CRACK_BURST_S):
     """Sharp crack: a dense burst of micro-cracks thinning out over `burst`
     seconds, over a short porcelain ring (the buffer holds the whole ring)."""
     taus = [0.22, 0.16, 0.12, 0.08, 0.06, 0.04]
@@ -665,9 +667,9 @@ def build_sfx(cfg: Config, irs: dict):
     # as the seal closes (the second quicker).
     c1, c2 = E['crack1'], E['crack2']
     hl = np.zeros(int(0.2 * SR))
-    for j in range(5):
+    for j in range(HAIRLINE[0]):
         g = grain(rng, 1.1, 0.8) * (0.8 ** j)
-        k = int(j * 0.009 * SR)
+        k = int(j * HAIRLINE[1] * SR)
         hl[k:k + len(g)] += g[: len(hl) - k]
     bus.add(norm(hl), S(c1['at']), PAN[CRACK_BOT['crack1']], LV['hairline'], room=0.3, hall=0.2)
     for f, crack, quick in ((X['flick1'], c1, False), (X['flick2'], c2, True)):
@@ -785,6 +787,17 @@ def end_fade(cfg: Config) -> np.ndarray:
     return m
 
 
+def close_mask(cfg: Config, ms: float = 60.0) -> np.ndarray:
+    """1, then a raised-cosine close over the last `ms` before slitClose.to,
+    then zero: closes a bus (its reverb included) exactly on the end silence."""
+    m = np.ones(cfg.n)
+    z = cfg.s(cfg['EVENTS']['slitClose']['to'])
+    f = z - int(ms * 1e-3 * SR)
+    m[f:z] = 0.5 + 0.5 * np.cos(np.pi * np.arange(z - f) / (z - f))
+    m[z:] = 0.0
+    return m
+
+
 def beat_shift(cfg: Config, score: np.ndarray) -> dict:
     times, flux = onset_envelope(score)
     onsets = pick_onsets(times, flux, cfg.fps)
@@ -816,11 +829,15 @@ def main() -> None:
     score_file = Path(args.score_file) if args.score_file else REEL / cfg['SCORE_FILE']
     external = score_file.exists()
     cut_tails: list[dict] = []
+    # Sub-sonic energy goes first, BEFORE the silences and fades are cut in, so
+    # the filter's ringing cannot carry past an edit (and get hard-cut there).
+    hp = signal.butter(2, 26, 'highpass', fs=SR, output='sos')
     if external:
         score = fit_length(decode(score_file), N)
         score *= db2a(-21.0 - integrated_lufs(score))  # sit it under the effects, then the mix is normalised
         # Beats are detected on the score as supplied, before the silence is cut into it.
         (out / 'beat-shift.json').write_text(json.dumps(beat_shift(cfg, score), indent=2))
+        score = signal.sosfilt(hp, score, axis=0)
         # The same silence as the synth score (silent through the inhale frame),
         # faded back in over 10 ms on the strike since it is still playing there.
         score *= silence_mask(cfg, B['strike'], fade_in_ms=10.0)[:, None]
@@ -828,7 +845,7 @@ def main() -> None:
               f'(beat-shift.json written)')
     else:
         score, cut_tails = build_score(cfg, irs)
-        score = shelf(score, 70.0, -4.0, 'low')  # keep the score's sub in check
+        score = signal.sosfilt(hp, shelf(score, 70.0, -4.0, 'low'), axis=0)  # (the shelf keeps the sub in check)
         score *= silence_mask(cfg, B['strike'])[:, None]
         (out / 'beat-shift.json').unlink(missing_ok=True)
     score *= end_fade(cfg)[:, None]
@@ -838,14 +855,11 @@ def main() -> None:
     for c in cut_tails:
         print(f"WARNING cut tail: {c['bus']} {c['label'] or ''} at {c['at_s']} s ends at {c['end_s']} s "
               f"still {c['tail_db']} dB re its peak")
+    sfx, inhale, close_air = (signal.sosfilt(hp, x, axis=0) for x in (sfx, inhale, close_air))
     sfx *= silence_mask(cfg, X['strikeHit'])[:, None]
-    end_zero = (np.arange(N) < cfg.s(E['slitClose']['to'])).astype(float)
-    sfx = sfx * end_fade(cfg)[:, None] + inhale + close_air * end_zero[:, None]
+    sfx = sfx * end_fade(cfg)[:, None] + inhale + close_air * close_mask(cfg)[:, None]
 
-    # Master: remove sub-sonic energy, normalise to -18 LUFS, true-peak limit.
-    hp = signal.butter(2, 26, 'highpass', fs=SR, output='sos')
-    score = signal.sosfilt(hp, score, axis=0)
-    sfx = signal.sosfilt(hp, sfx, axis=0)
+    # Master: normalise to -18 LUFS, true-peak limit.
     pre = score + sfx
     mix, gain, meas = normalize_and_limit(pre, TARGET_LUFS, CEILING_DBTP - AAC_HEADROOM_DB)
     g = db2a(gain)

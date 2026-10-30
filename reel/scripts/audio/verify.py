@@ -35,7 +35,7 @@ from scipy import ndimage, signal
 
 from dsp import (AUDIO_BUILD, REEL, SR, a2db, load_config, momentary_lufs, onset_envelope, pick_onsets,
                  read_wav)
-from synth import BLINK_REOPEN_FRAMES
+from synth import BLINK_REOPEN_FRAMES, CRACK_BURST_S, HAIRLINE
 
 PHONE_HP_HZ = 200.0  # a phone speaker plays little below this
 CLICK_RATIO = 20.0   # an HF burst this many times the local median is a click...
@@ -50,8 +50,8 @@ def check(name: str, ok, detail: str, warn_only: bool = False) -> None:
 
 def intended_transients(cfg) -> tuple[list[float], list[tuple[float, float]]]:
     """Frames where a sound is meant to start (BEATS, SFX, and the few effects
-    placed relative to an EVENT), and SFX ranges full of intended transients
-    (crackle, sizzle)."""
+    placed relative to an EVENT), and spans full of intended transients (the
+    SFX ranges: crackle, sizzle; the strike's crack burst; the hairline run)."""
     pts: list[float] = []
     spans: list[tuple[float, float]] = []
 
@@ -72,6 +72,9 @@ def intended_transients(cfg) -> tuple[list[float], list[tuple[float, float]]]:
     E, X = cfg['EVENTS'], cfg['SFX']
     pts += [E['crack1']['at'], X['flick1'] + E['crack1']['sealFrames'], X['flick2'] + E['crack2']['sealFrames']]
     pts += [f + BLINK_REOPEN_FRAMES for f in X['blinkTicks']]
+    fps = cfg.fps
+    spans += [(X['strikeHit'], X['strikeHit'] + CRACK_BURST_S * fps),
+              (E['crack1']['at'], E['crack1']['at'] + HAIRLINE[0] * HAIRLINE[1] * fps)]
     return sorted(set(pts)), spans
 
 
@@ -151,6 +154,15 @@ def main() -> int:
     fx_in = float(np.max(np.abs(wav['sfx'][inhale])))
     check(f"frame {X['strikeWhoosh']} inhale only", sc_in == 0.0 and fx_in > 0.0,
           f'score {"zero" if sc_in == 0 else a2db(sc_in)}, inhale peak {a2db(fx_in):.1f} dBFS')
+    # the cuts into silence are fades, not steps (a filter ringing past a fade
+    # and then hard-zeroed would click right where the click gate looks away)
+    edges = {}
+    for f in (B['silence']['from'], E['slitClose']['to']):
+        i = s(f)
+        edges[f] = max(float(a2db(np.max(np.abs(wav[n][i] - wav[n][i - 1])))) for n in ('score', 'sfx', 'mix-main'))
+    check('clean edges into the silences', all(v <= -90.0 for v in edges.values()),
+          ', '.join(f'frame {f}: step {v:.0f} dB' for f, v in edges.items()) + ' (max -90)')
+    report['silence_edges_db'] = edges
     tail = slice(N - int(0.1 * SR), N)
     tails = {n: float(np.max(np.abs(w[tail]))) for n, w in wav.items()}
     check('last 0.1 s digital silence', all(v == 0.0 for v in tails.values()), ', '.join(f'{k} {v:g}' for k, v in tails.items()))
