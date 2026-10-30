@@ -200,12 +200,16 @@ def main() -> int:
           'every sound decays below -60 dB re its peak before its buffer ends' if not tails else
           '; '.join(f"{c['bus']} {c['label']} @{c['at_s']} s: {c['tail_db']} dB" for c in tails[:6]))
     pts, spans = intended_transients(cfg)
-    clicks = hf_clicks(mix, fps, pts, spans)
-    bad = [c for c in clicks if not c[3]]
-    report['hf_clicks'] = {'intended': [c[:3] for c in clicks if c[3]], 'unexplained': [c[:3] for c in bad]}
-    check('no clicks in the main mix', not bad,
-          f'{len(clicks)} HF bursts > {CLICK_RATIO:g}x local median, all at intended transients' if not bad else
-          f'{len(bad)} unexplained HF bursts at frames ' + ', '.join(f'{c[0]} (x{c[1]:g}, {c[2]} dB)' for c in bad[:12]))
+    report['hf_clicks'] = {}
+    # (an external score has transients of its own, so on the mix this only WARNs then)
+    for stem, warn in (('sfx', False), ('mix-main', external)):
+        clicks = hf_clicks(wav[stem], fps, pts, spans)
+        bad = [c for c in clicks if not c[3]]
+        report['hf_clicks'][stem] = {'intended': [c[:3] for c in clicks if c[3]], 'unexplained': [c[:3] for c in bad]}
+        check(f'no clicks in {"the effects stem" if stem == "sfx" else "the main mix"}', not bad,
+              f'{len(clicks)} HF bursts > {CLICK_RATIO:g}x local median, all at intended transients' if not bad else
+              f'{len(bad)} unexplained HF bursts at frames ' + ', '.join(f'{c[0]} (x{c[1]:g}, {c[2]} dB)' for c in bad[:12]),
+              warn_only=warn)
 
     # the strike is the loudest moment, full range and on a phone
     hit = X['strikeHit']

@@ -5,7 +5,6 @@ import { IntroReel } from './IntroReel';
 import { Cover } from './Cover';
 import { BotSheet } from './dev/BotSheet';
 import { DiabloSheet } from './dev/DiabloSheet';
-import { Debug } from './dev/Debug';
 
 export const RemotionRoot: React.FC = () => (
   <>
@@ -13,7 +12,6 @@ export const RemotionRoot: React.FC = () => (
     <Composition id="Cover" component={Cover} durationInFrames={1} fps={FPS} width={WIDTH} height={HEIGHT} />
     {/* Dev sheets for checking the cast as stills while building. */}
     <Composition id="BotSheet" component={BotSheet} durationInFrames={DURATION} fps={FPS} width={WIDTH} height={HEIGHT} />
-    <Composition id="Debug" component={Debug} durationInFrames={DURATION} fps={FPS} width={WIDTH} height={HEIGHT} />
     <Composition id="DiabloSheet" component={DiabloSheet} durationInFrames={DURATION} fps={FPS} width={WIDTH} height={HEIGHT} />
   </>
 );
