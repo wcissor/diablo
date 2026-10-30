@@ -11,7 +11,8 @@ import { KINDS } from './v2/timeline';
 // Diablo's mark, the name and the line, and the three bots fixed and proud with
 // their white bolt badges, larger than in the reel. Everything sits in the
 // middle band (y 450-1420), so a square or 4:5 crop of the centre keeps it all.
-const ROW = { scale: 1.25, feet: 1420, x: { bubble: 255, cube: 540, orb: 825 } };
+// spread wider than the reel's row so the larger bots keep 20+ px of maroon between them
+const ROW = { scale: 1.25, feet: 1420, x: { bubble: 215, cube: 540, orb: 865 } };
 const HIT_AGO = 300; // frames since the hit: settled, badge on
 const SEALED_AGO = 20; // frames since the seal: past the celebration, before the first idle glint
 

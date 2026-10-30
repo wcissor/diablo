@@ -178,7 +178,7 @@ export const dotsAt = (f: number): DotView[] => {
 // bots (ears and mitts included), so a swipe never spears the wrong bot.
 const SLASH_BOW = 20; // px the arc's control point sits off the line
 // (the blade's round head reaches half its width past these)
-const SLASH_X: Record<BotKind, [number, number]> = { bubble: [SAFE.x0 + 6, 385], cube: [405, 672], orb: [695, SAFE.x1 - 6] };
+const SLASH_X: Record<BotKind, [number, number]> = { bubble: [SAFE.x0 + 6, 385], cube: [420, 672], orb: [695, SAFE.x1 - 6] };
 export interface Arc {
   p0: Pt;
   c: Pt;

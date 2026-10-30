@@ -82,4 +82,17 @@ That blocker and the useful notes were fixed:
 
 ## Final verification
 
-Two fresh reviewers looked at this exact render: a frame-level verifier and a sound-off phone viewer. Their verdicts are recorded below.
+Three more rounds of fresh verifiers checked the final renders.
+
+1. **First round.** A frame-level verifier and a sound-off phone viewer both said ship. Both flagged the cube's badge reading as a white glove. The cube's slash and bolt moved to its chin, the chips fly slower, the lens follows each bot's hop, and the cover was rebuilt.
+2. **Second round.** A verifier found two regressions from that pass. A click ring briefly circled the pour's bead like an eye, and the new cover's bots touched. Both were fixed: the click is a flash only, and the cover's row was spread out.
+3. **Third round.** A verifier passed this cut, with measurements:
+   - No ring follows any click.
+   - The cover has 42 px and 38 px between the bots (it was 2 px and 0 px).
+   - The cube's blade stays at least 23 px from the bubble (it was 8 px).
+   - Every badge tapers to a point.
+   - A full diff against the previous render found nothing else changed. The audio is bit-identical.
+
+Two one-line polish items from that pass were then applied and checked by measurement:
+- The cube's own slash light now ends under its blade. The closest slash white is 23 px from the bubble.
+- Badge tips keep their point while a glint passes.

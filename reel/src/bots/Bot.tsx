@@ -218,7 +218,8 @@ export const ConceptBotImpl: ConceptBot = ({ kind, frame, bg, mood = 'happy', lo
   const pulseAmp = glintF >= 0 ? 3.6 * keys(glintF, [[1.5, 0], [3, 1], [10.5, 1], [12, 0]]) : 0;
   const ihw = (s: number) =>
     // capped near the notch's mouth so the white reads as a bolt, not a patch flooding the edge
-    (Math.min(hw(s), CRACK_HW * 1.15) + 3) * clamp((front - s) / 6 + 0.15) * swell + (pulseAmp > 0 ? pulseAmp * Math.exp(-(((s - pulseAt) / 9) ** 2)) : 0);
+    (Math.min(hw(s), CRACK_HW * 1.15) + 3 * clamp((L - s) / 14)) * clamp((front - s) / 6 + 0.15) * swell +
+    (pulseAmp > 0 ? pulseAmp * Math.exp(-(((s - pulseAt) / 9) ** 2)) * clamp((L - s) / 14) : 0); // the glint keeps the point
   const outer = (s: number) => Math.min(hw(s), Math.max(0, (reveal - s) * 0.9));
   const crackFrom = Math.max(0, front);
   const crackD = hit && reveal > crackFrom ? ribbon(D.line, crackFrom, reveal, outer) : '';
@@ -335,13 +336,10 @@ export const ConceptBotImpl: ConceptBot = ({ kind, frame, bg, mood = 'happy', lo
         {pouring && front > -1 ? <WeldHead at={head} pulse={Math.sin(frame * 1.9)} light={pal.light} /> : null}
 
         {/* the click as the chip lands */}
-        {sealing && sl >= SNAP && sl < SNAP + 0.3 ? (
+        {sealing && sl >= SNAP && sl < SNAP + 0.12 ? (
           <>
-            {/* a flash, then a ring once the flash has gone (a dot inside a ring reads as an eye) */}
+            {/* a flash only: any ring here would circle the weld bead as the pour starts, and read as an eye */}
             <Dot at={centroid(D.chip)} r={13 * keys(sl, [[SNAP, 0.6], [SNAP + 0.05, 1], [SNAP + 0.11, 0]])} fill={pal.light} />
-            {sl >= SNAP + 0.1 ? (
-              <Ring at={centroid(D.chip)} r={14 + 26 * ramp(sl, SNAP + 0.1, SNAP + 0.3, easeOutCubic)} w={3.4 * (1 - ramp(sl, SNAP + 0.1, SNAP + 0.3))} color={pal.fx} />
-            ) : null}
           </>
         ) : null}
 
@@ -383,8 +381,8 @@ const arcOf = (kind: BotKind) => {
 // breaks in and out of the outline. `toBody` maps plain bot space into the
 // posed body's own space.
 const SPILL = 26; // px the light runs past the outline where the blade comes in
-// ...and where it leaves: the bubble's and the orb's slashes leave toward the cube, so theirs stops short
-const SPILL_OUT: Record<BotKind, number> = { bubble: 6, cube: 26, orb: 6 };
+// ...and where it leaves: every exit faces a neighbour (the cube's toward the bubble), so it stops short
+const SPILL_OUT: Record<BotKind, number> = { bubble: 6, cube: 8, orb: 6 };
 // The chips fly out toward the neighbours; slower, they drop close to their own bot.
 const CHIP_SPEED: Record<BotKind, number> = { bubble: 0.6, cube: 0.55, orb: 0.8 };
 const slashSpan = (kind: BotKind, toBody: (p: Pt) => Pt) => {
