@@ -16,27 +16,39 @@ import React from 'react';
 import { C, HATCH } from '../theme';
 import { clamp, wobble, type Pt } from '../lib/anim';
 import type { HandPose, HandProps } from './types';
-import { ap, bbox, chain, invv, polyD, R, S, samplePath, stripD, stripEdgeBandD, stripHalfD, stripRimD, stripUnderD, svgM, T, unrotate, type Mat, type Strip } from './diablo/geom';
+import { ap, bbox, chain, invv, polyD, R, S, samplePath, smoothD, stripD, stripEdgeBandD, stripHalfD, stripRimD, stripUnderD, svgM, T, unrotate, type Mat, type Strip } from './diablo/geom';
 
 /* ───────────────────────────── the shapes ───────────────────────────── */
 
 // Hand-local frame (scale 1, px): origin at the palm centre, +y down the claws,
 // +x toward the inside (the screen centre for either hand). Drawn for the left
 // hand; the right hand mirrors it.
-// The back of the hand: a rounded shape, its wrist cut clean at the 9° slant,
-// swelling over the thumb's root on the inside and into a heel on the outside.
-// The fingers lie ON it (drawn over it from knuckles inside its lower half),
-// so its lower edge only shows as webbing between them.
-export const PALM_PATH =
-  'M-40 -128' +
-  'L40 -115.3' + // the wrist, cut clean at the reel's 9° slant
-  'C50 -113 56 -107 58 -98' +
-  'C64 -72 86 -46 96 -20' + // inner side swelling over the thumb's root
-  'C102 0 98 22 82 34' +
-  'C52 54 -44 56 -82 34' + // the lower edge (webbing between the fingers)
-  'C-100 22 -106 -4 -98 -30' + // the heel
-  'C-88 -60 -66 -90 -56 -112' +
-  'C-52 -121 -47 -128 -40 -128Z';
+// The back of the hand: a soft, rounded shape with no corners anywhere. Its
+// wrist is a gentle convex arc whose chord leans at the reel's 9° slant; it
+// rounds into the sides, swelling over the thumb's root on the inside and into
+// a heel on the outside, and closes in a soft lower edge. The fingers lie ON
+// it (drawn over it from knuckles inside its lower half), so its lower edge
+// only shows as webbing between them. One smooth closed curve through these
+// points (Catmull-Rom, so the curvature is continuous all the way round).
+const PALM_PTS: Pt[] = [
+  { x: -40, y: -127 }, // the wrist: its chord falls 9° to the right …
+  { x: 4, y: -123.5 },
+  { x: 48, y: -113 }, // … to here
+  { x: 74, y: -96 },
+  { x: 88, y: -66 },
+  { x: 100, y: -30 },
+  { x: 104, y: 0 }, // over the thumb's root
+  { x: 96, y: 26 },
+  { x: 72, y: 45 },
+  { x: 8, y: 55 }, // the lower edge (webbing between the fingers)
+  { x: -58, y: 48 },
+  { x: -96, y: 24 },
+  { x: -110, y: -10 }, // the heel
+  { x: -104, y: -50 },
+  { x: -86, y: -90 },
+  { x: -66, y: -117 },
+];
+export const PALM_PATH = smoothD(PALM_PTS);
 
 const PALM_POLY = samplePath(PALM_PATH, 10)[0];
 
@@ -62,13 +74,18 @@ interface Digit {
   fShrink?: number; // foreshortening of the finger at full curl (default 0.3)
   cShrink?: number; // … and of the claw (default 0.14)
   cShrinkHi?: number; // extra claw foreshortening ∝ curl³ (only near a full strike curl)
+  // Tucked (another claw is pointing): the finger folds toward us and its claw
+  // hooks round tight in its own bend direction, so the tip turns back up
+  // toward the wrist, close under the palm. Fan angle, total claw bend and the
+  // foreshortened finger / claw lengths at point = 1.
+  tuck: { phi: number; turn: number; f: number; c: number; k?: Pt };
 }
 const DIGITS: Digit[] = [
   // (the outer claw fans out less past spread 0.5, keeping a spread hand off the right rail)
-  { k: { x: -60, y: 2 }, fLen: 82, cLen: 196, phi: -0.12, phiSpread: -0.22, phiSpreadOpen: -0.15, phiCurl: 0, turn: 0.6, turnCurl: 1.3, w: 0.94, fShrink: 0.21 },
+  { k: { x: -60, y: 2 }, fLen: 82, cLen: 196, phi: -0.12, phiSpread: -0.22, phiSpreadOpen: -0.15, phiCurl: 0, turn: 0.6, turnCurl: 1.3, w: 0.94, fShrink: 0.21, tuck: { phi: 0.08, turn: 2.8, f: 0.4, c: 0.38 } },
   // (the longest claw foreshortens a little more near a full curl, so the four tips land level)
-  { k: { x: -6, y: 8 }, fLen: 86, cLen: 216, phi: 0.0, phiSpread: -0.04, phiCurl: 0.0, turn: 0.62, turnCurl: 0.95, w: 1, fShrink: 0.21, cShrinkHi: 0.1 },
-  { k: { x: 50, y: 4 }, fLen: 82, cLen: 204, phi: 0.12, phiSpread: 0.16, phiCurl: 0.08, turn: 0.64, turnCurl: 0.6, w: 0.96, fShrink: 0.21 },
+  { k: { x: -6, y: 8 }, fLen: 86, cLen: 216, phi: 0.0, phiSpread: -0.04, phiCurl: 0.0, turn: 0.62, turnCurl: 0.95, w: 1, fShrink: 0.21, cShrinkHi: 0.1, tuck: { phi: 0.04, turn: 2.8, f: 0.4, c: 0.36 } },
+  { k: { x: 50, y: 4 }, fLen: 82, cLen: 204, phi: 0.12, phiSpread: 0.16, phiCurl: 0.08, turn: 0.64, turnCurl: 0.6, w: 0.96, fShrink: 0.21, tuck: { phi: 0.1, turn: 2.8, f: 0.4, c: 0.38 } },
   // The thumb: from the inner side, angled in, its claw hooking back toward the
   // fingers. Curling tucks its root down the palm and lets the claw reach out a
   // touch, so at strike curl (0.8–1) its tip lands on the same shallow arc as
@@ -86,8 +103,13 @@ const DIGITS: Digit[] = [
     kCurl: { x: -6, y: 20 },
     fShrink: 0.2,
     cShrink: -0.05,
+    tuck: { phi: 0.7, turn: -2.8, f: 0.45, c: 0.4 },
   },
 ];
+
+// Pointing (point = 1): the lead claw straightens toward the hand's axis and
+// keeps only a little of its crescent bend, so one needle tip leads.
+const POINT = { phi: 0.3, turn: 0.45 };
 
 /* ───────────────────────────── the pose ───────────────────────────── */
 
@@ -123,24 +145,50 @@ export interface HandGeo {
 
 const dir = (phi: number): Pt => ({ x: Math.sin(phi), y: Math.cos(phi) }); // phi from +y toward +x
 
+// Which claw points (an index into clawTips() order).
+export const pointIndex = (p: Pick<HandPose, 'pointClaw'>) => Math.max(0, Math.min(3, Math.round(p.pointClaw ?? 1)));
+
 export const handGeometry = (p: PoseIn): HandGeo => {
   const m = handMatrix(p);
   const spread = clamp(p.spread ?? 0.5);
   const curl = clamp(p.curl ?? 0);
+  const point = clamp(p.point ?? 0);
+  const lead = pointIndex(p);
   const scale = Math.abs(p.scale ?? 1);
   const det = m[0] * m[3] - m[1] * m[2];
   const claws: ClawGeo[] = [];
   for (let i = 0; i < 4; i++) {
     const dg = DIGITS[i];
-    const K = { x: dg.k.x * (1 - 0.06 * curl) + (dg.kCurl?.x ?? 0) * curl, y: dg.k.y + (dg.kCurl?.y ?? 0) * curl };
+    let K = { x: dg.k.x * (1 - 0.06 * curl) + (dg.kCurl?.x ?? 0) * curl, y: dg.k.y + (dg.kCurl?.y ?? 0) * curl };
     // The fan opens with the spread; a curled hand closes into a cage.
     const fan = spread > 0.5 ? dg.phiSpreadOpen ?? dg.phiSpread : dg.phiSpread;
-    const phiK = dg.phi + fan * (spread - 0.5) * 2 + dg.phiCurl * curl;
+    let phiK = dg.phi + fan * (spread - 0.5) * 2 + dg.phiCurl * curl;
     // Curling bends the fingers forward (toward us): they foreshorten.
-    const fLen = dg.fLen * (1 - (dg.fShrink ?? 0.3) * curl);
-    const cLen = dg.cLen * (1 - (dg.cShrink ?? 0.14) * curl - (dg.cShrinkHi ?? 0) * curl * curl * curl);
+    let fLen = dg.fLen * (1 - (dg.fShrink ?? 0.3) * curl);
+    let cLen = dg.cLen * (1 - (dg.cShrink ?? 0.14) * curl - (dg.cShrinkHi ?? 0) * curl * curl * curl);
     // Claw bend: the fingers sweep toward the inside like the crescent; hooked when curled.
-    const turn = dg.turn * (1 - curl) + dg.turnCurl * curl;
+    let turn = dg.turn * (1 - curl) + dg.turnCurl * curl;
+    let bendExp = 1.5; // how the bend gathers toward the tip (1 = an even hook)
+    if (point > 0) {
+      // Pointing: blend from the pose toward a fixed shape (at point = 1 it no
+      // longer depends on spread or curl, so the lead tip is predictable).
+      const mixv = (a: number, b: number) => a + (b - a) * point;
+      if (i === lead) {
+        K = { x: mixv(K.x, dg.k.x), y: mixv(K.y, dg.k.y) };
+        phiK = mixv(phiK, dg.phi * POINT.phi);
+        fLen = mixv(fLen, dg.fLen);
+        cLen = mixv(cLen, dg.cLen);
+        turn = mixv(turn, dg.turn * POINT.turn);
+      } else {
+        const tk = dg.tuck;
+        K = { x: mixv(K.x, dg.k.x + (tk.k?.x ?? 0)), y: mixv(K.y, dg.k.y + (tk.k?.y ?? 0)) };
+        phiK = mixv(phiK, tk.phi);
+        fLen = mixv(fLen, dg.fLen * tk.f);
+        cLen = mixv(cLen, dg.cLen * tk.c);
+        turn = mixv(turn, tk.turn);
+        bendExp = mixv(1.5, 1);
+      }
+    }
     const fingerTurn = 0.05 * Math.sign(dg.turn);
     const L = fLen + cLen;
     const sCut = fLen / L;
@@ -151,7 +199,7 @@ export const handGeometry = (p: PoseIn): HandGeo => {
       centre.push(q);
       const sm = s + 0.5 / N;
       const u = Math.max(0, (sm - sCut) / (1 - sCut)); // along the claw
-      const phi = phiK + fingerTurn * Math.min(1, sm / sCut) + turn * Math.pow(u, 1.5);
+      const phi = phiK + fingerTurn * Math.min(1, sm / sCut) + turn * Math.pow(u, bendExp);
       q = { x: q.x + dir(phi).x * (L / N), y: q.y + dir(phi).y * (L / N) };
     }
     const iCut = Math.round(sCut * N);
@@ -202,6 +250,13 @@ export const handGeometry = (p: PoseIn): HandGeo => {
 // (with tremble and frame) to get the trembling tips the renderer draws.
 export function clawTips(p: HandPose | HandProps): Pt[] {
   return handGeometry(p).claws.map((c) => c.tip);
+}
+
+// The pointing claw's needle tip (pointClaw, default the middle finger) in
+// stage coordinates: exactly the tip drawn, for any point value (pass the
+// HandProps with tremble and frame to get the trembling tip).
+export function leadTip(p: HandPose | HandProps): Pt {
+  return handGeometry(p).claws[pointIndex(p)].tip;
 }
 
 export function handBounds(p: HandPose | HandProps): { x0: number; y0: number; x1: number; y1: number } {
@@ -369,6 +424,8 @@ export const Hand: React.FC<HandProps> = (p) => {
   const rim = invv(g.m, { x: 0, y: 3 });
   const hatchR = 280 * Math.abs(p.scale ?? 1); // canvas px round the palm centre: covers the palm
   const ko = 2.5 * 2; // a 2.5 px night keyline outside, so a hand reads over the head
+  const lead = pointIndex(p);
+  const order = (p.point ?? 0) > 0 ? [0, 1, 2, 3].filter((i) => i !== lead).concat(lead) : [0, 1, 2, 3];
   return (
     <g>
       <HandDefs id={id} />
@@ -388,14 +445,18 @@ export const Hand: React.FC<HandProps> = (p) => {
           {warm > 0 ? <rect x={-200} y={-250} width={400} height={400} fill={C.gold} opacity={0.75 * warm} mask={`url(#${id}-lip)`} /> : null}
         </g>
       </g>
-      {/* the digits lie on the back of the hand: keyline, claw, then the finger sheath */}
-      {g.claws.map((c, i) => (
-        <g key={i}>
-          <path d={fingerD(c) + stripD(c.strip, c.iCut - 2)} fill={C.night} stroke={C.night} strokeWidth={ko} strokeLinejoin="round" />
-          <Claw c={c} id={id} ember={ember} warm={warm} />
-          <Finger c={c} ember={ember} warm={warm} />
-        </g>
-      ))}
+      {/* the digits lie on the back of the hand: keyline, claw, then the finger
+          sheath; a pointing claw is drawn last, over the tucked ones */}
+      {order.map((i) => {
+        const c = g.claws[i];
+        return (
+          <g key={i}>
+            <path d={fingerD(c) + stripD(c.strip, c.iCut - 2)} fill={C.night} stroke={C.night} strokeWidth={ko} strokeLinejoin="round" />
+            <Claw c={c} id={id} ember={ember} warm={warm} />
+            <Finger c={c} ember={ember} warm={warm} />
+          </g>
+        );
+      })}
     </g>
   );
 };

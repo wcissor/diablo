@@ -32,7 +32,7 @@ export const LightPool: React.FC<{
           <stop offset="1" stopColor={C.night} stopOpacity={0} />
         </radialGradient>
         <radialGradient id={`${id}-ember`} cx={cx} cy={cy + 20} r={rx * 0.8} gradientUnits="userSpaceOnUse" gradientTransform={`translate(${cx} ${cy + 20}) scale(1 ${(ry / rx) * 0.8}) translate(${-cx} ${-(cy + 20)})`}>
-          <stop offset="0" stopColor={C.ember} stopOpacity={0.22 * ember} />
+          <stop offset="0" stopColor={C.ember} stopOpacity={0.4 * ember} />
           <stop offset="1" stopColor={C.ember} stopOpacity={0} />
         </radialGradient>
       </defs>

@@ -10,6 +10,12 @@ import { Tail } from '../cast/Tail';
 import { Camera } from '../stage/Camera';
 import { LightPool, StageLine } from '../stage/Stage';
 
+// A gold spark in flight, with its trail (most recent first).
+export interface Spark {
+  at: Pt;
+  trail: Pt[];
+}
+
 // Everything a shot decides for one frame. Shots are pure functions
 // frame → SceneState; the Scene draws it in one fixed layer order.
 export interface SceneState {
@@ -24,6 +30,7 @@ export interface SceneState {
   handsBack?: HandProps[]; // behind the bots, rising from behind the stage line (clipped at it)
   bots: Record<BotKind, Omit<BotProps, 'kind' | 'frame'>>;
   shards?: { kind: BotKind; impacts: Pt[]; t: number; seed: string }[];
+  sparks?: Spark[]; // shot 5: what he learned, flying to his crescent
   flash?: boolean; // the impact flash: cream frame, every character a night silhouette
 }
 
@@ -83,6 +90,15 @@ export const Scene: React.FC<{ s: SceneState; id: string }> = ({ s, id }) => {
       ))}
       {(s.shards ?? []).map((sh) => (
         <Shards key={sh.kind} {...sh} silhouette={sil} />
+      ))}
+      {(s.sparks ?? []).map((sp, i) => (
+        <g key={`spark-${i}`}>
+          {sp.trail.map((p, k) => (
+            <circle key={k} cx={p.x} cy={p.y} r={6.5 * (1 - (k + 1) / (sp.trail.length + 1))} fill={C.gold} opacity={0.75 * (1 - k / sp.trail.length)} />
+          ))}
+          <circle cx={sp.at.x} cy={sp.at.y} r={7.5} fill={C.gold} />
+          <circle cx={sp.at.x - 1} cy={sp.at.y - 1.2} r={3} fill={C.cream} />
+        </g>
       ))}
       {s.dim ? <rect x={-400} y={-400} width={1880} height={2720} fill={C.night} opacity={s.dim} /> : null}
     </Camera>

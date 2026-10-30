@@ -663,6 +663,15 @@ def build_sfx(cfg: Config, irs: dict):
         pan = 0.0 if last else interp(i, [(0, -0.55), (nc - 2, 0.55)])
         bus.add(norm(x), S(f), pan, LV['chime'] + (1.5 if last else 0.0) - 0.15 * i, hall=0.45, label=f'chime {f}')
 
+    # Shot 5: as each gold spark lands on his crescent, a soft high chime, the
+    # run rising up the scale from D5 (what he learned, kept).
+    for i, f in enumerate(X.get('learnSparks', [])):
+        m = 74 + 12 * (i // 7) + steps[i % 7]
+        off = 0.22
+        n = ring_n(0.3, extra=off)
+        x = release(np.stack([chime(midi(m), n, rng, 0.6), chime(midi(m) * 2 ** (3 / 1200), n, rng, 0.6)], axis=1), off, 0.3)
+        bus.add(norm(x), S(f), -0.4, LV['chime'] - 10 - 0.2 * i, hall=0.5, label=f'learn {f}')
+
     # A hairline crack on the orb, then the flicks: a bright tink and a snap
     # as the seal closes (the second quicker).
     c1, c2 = E['crack1'], E['crack2']

@@ -10,7 +10,7 @@ import type { CrackSet, CrackState, HandPose, Pt, TailCrescentPose } from '../ca
 import { makeCracks, makeHairline } from '../cast/Bots';
 import { clawTips } from '../cast/Hands';
 import { tailTips } from '../cast/Tail';
-import { clamp, easeInOutCubic, easeOutCubic, invLerp, lerp } from '../lib/anim';
+import { clamp, easeOutCubic, invLerp, lerp } from '../lib/anim';
 
 /* ───────────── Where the blows land ───────────── */
 
@@ -20,21 +20,26 @@ import { clamp, easeInOutCubic, easeOutCubic, invLerp, lerp } from '../lib/anim'
 export const STRIKE_LEFT: HandPose = { side: 'left', x: 226.84, y: 768.96, rot: 6, spread: 0.4, curl: 0.9 };
 export const STRIKE_RIGHT: HandPose = { side: 'right', x: 821.78, y: 770.32, rot: -10, spread: 0.15, curl: 1 };
 
-// Where the tail's point taps the cube (its top face): the cube's cracks start here.
-export const CUBE_TAP: Pt = { x: BOTS.cube.cx - 8, y: 950 };
+// Where the tail's point taps the cube: the corner of the band under its
+// screen, so the tail can come up from in front of the stage, in the clear.
+export const CUBE_TAP: Pt = { x: BOTS.cube.cx + 86, y: 1150 };
 
 // Hover poses (shot 2 end, shot 3 start): high on either side, clear of his horns (no words yet).
-export const HOVER_LEFT: HandPose = { side: 'left', x: STRIKE_LEFT.x - 5, y: STRIKE_LEFT.y - 240, rot: 10, spread: 0.8, curl: 0.1 };
-export const HOVER_RIGHT: HandPose = { side: 'right', x: STRIKE_RIGHT.x - 18, y: STRIKE_RIGHT.y - 240, rot: -10, spread: 0.8, curl: 0.1 };
+export const HOVER_LEFT: HandPose = { side: 'left', x: STRIKE_LEFT.x - 15, y: STRIKE_LEFT.y - 240, rot: 10, spread: 0.8, curl: 0.1 };
+export const HOVER_RIGHT: HandPose = { side: 'right', x: STRIKE_RIGHT.x - 10, y: STRIKE_RIGHT.y - 240, rot: -10, spread: 0.8, curl: 0.1 };
 
-// The tail rests behind Diablo's left side, then its point taps the cube.
+// The tail rests behind Diablo's left side (shots 2 and 6).
 export const TAIL_REST: TailCrescentPose = { x: 250, y: 880, rot: 10, scale: 1.0 };
 const aimTail = (pose: TailCrescentPose, target: Pt): TailCrescentPose => {
   const tip = tailTips(pose).lower;
   return { ...pose, x: pose.x + target.x - tip.x, y: pose.y + target.y - tip.y };
 };
-// Flipped, coming in from the upper left so its inner curve clears his left eye.
-export const TAIL_TAP: TailCrescentPose = aimTail({ x: 440, y: 820, rot: -8, scale: 0.8, flip: true }, CUBE_TAP);
+// The strike: the crescent lies in front of the stage, below the bots, and
+// its point curls up into the cube's corner — a scythe seen against the floor.
+export const TAIL_TAP: TailCrescentPose = aimTail({ x: 760, y: 1290, rot: 100, scale: 0.78 }, CUBE_TAP);
+// Coiled, before the tap (and where it pulls back to): straight below, so it
+// never strays into the right rail.
+export const TAIL_COIL: TailCrescentPose = { ...TAIL_TAP, x: TAIL_TAP.x - 10, y: TAIL_TAP.y + 130, rot: (TAIL_TAP.rot ?? 0) + 6 };
 
 /* ───────────── Cracks ───────────── */
 
@@ -45,11 +50,11 @@ const memo = <T,>(f: () => T) => {
 
 export const strikeCracks = memo(
   (): Record<BotKind, CrackSet> => ({
-    // 5 each: the traced crack plus 14 more close on the 13 chimes after it
+    // 8 each (mains and their forks); they close on the 13 seam chimes after the trace.
     // maxMove: a claw that misses free shell fails the render instead of cracking elsewhere
-    bubble: makeCracks('bubble', clawTips(STRIKE_LEFT), 'strike-bubble', 5, { maxMove: 2 }),
-    cube: makeCracks('cube', [CUBE_TAP], 'strike-cube', 5, { maxMove: 2 }),
-    orb: makeCracks('orb', clawTips(STRIKE_RIGHT), 'strike-orb', 5, { maxMove: 2 }),
+    bubble: makeCracks('bubble', clawTips(STRIKE_LEFT), 'strike-bubble', 8, { maxMove: 2 }),
+    cube: makeCracks('cube', [CUBE_TAP], 'strike-cube', 8, { maxMove: 2 }),
+    orb: makeCracks('orb', clawTips(STRIKE_RIGHT), 'strike-orb', 8, { maxMove: 2 }),
   }),
 );
 
@@ -99,20 +104,50 @@ export interface SealSlot {
 
 const FILL_FRAMES = 8;
 
-// The traced crack closes when the trace ends; the rest close one after
-// another on the chime frames, about 3 frames apart, the last at 9.8 s.
+// A crack's parent (the crack it forks from), or -1 for a main.
+const parentOf = (set: CrackSet, i: number): number => {
+  const p = (set.cracks[i] as { parent?: number }).parent;
+  return typeof p === 'number' && p >= 0 && p !== i ? p : -1;
+};
+const mainOf = (set: CrackSet, i: number): number => {
+  let j = i;
+  for (let n = 0; n < 16 && parentOf(set, j) >= 0; n++) j = parentOf(set, j);
+  return j;
+};
+const rootDistOf = (set: CrackSet, i: number): number => (set.cracks[i] as { rootDist?: number }).rootDist ?? 0;
+
+// The traced crack (and its forks, as the claw passes them) closes with the
+// trace; the rest close one after another on the chime frames, about 3 frames
+// apart, the last at 9.8 s. A fork never closes before the crack it forks from.
 export const sealSchedule = memo((): SealSlot[] => {
   const sets = strikeCracks();
-  const traced = sets.bubble.longest;
-  const slots: SealSlot[] = [{ kind: 'bubble', index: traced, start: EVENTS.trace.from, end: EVENTS.trace.to }];
+  const bubble = sets.bubble;
+  const traced = bubble.longest;
+  const { from: t0, to: t1 } = EVENTS.trace;
+  const slots: SealSlot[] = [{ kind: 'bubble', index: traced, start: t0, end: t1 }];
+  const tracedLen = bubble.cracks[traced].length;
+  bubble.cracks.forEach((_, i) => {
+    if (i === traced || mainOf(bubble, i) !== traced) return;
+    const at = t0 + (t1 - t0) * Math.min(1, Math.max(0, rootDistOf(bubble, i)) / tracedLen);
+    slots.push({ kind: 'bubble', index: i, start: Math.round(at), end: Math.round(at) + FILL_FRAMES });
+  });
+  const taken = new Set(slots.map((x) => `${x.kind}-${x.index}`));
+  // Per bot: mains first, each followed by its forks (depth first); then interleave the bots.
+  const ordered = (k: BotKind) => {
+    const set = sets[k];
+    const out: number[] = [];
+    const visit = (i: number) => {
+      if (!taken.has(`${k}-${i}`)) out.push(i);
+      set.cracks.forEach((_, j) => parentOf(set, j) === i && visit(j));
+    };
+    set.cracks.forEach((_, i) => parentOf(set, i) < 0 && visit(i));
+    return out.map((index) => ({ kind: k, index }));
+  };
+  const lists = (['bubble', 'cube', 'orb'] as BotKind[]).map(ordered);
   const rest: { kind: BotKind; index: number }[] = [];
-  // Interleave the bots so the gold travels across all three.
-  const lists = (['bubble', 'cube', 'orb'] as BotKind[]).map((k) =>
-    sets[k].cracks.map((_, i) => ({ kind: k, index: i })).filter((c) => !(c.kind === 'bubble' && c.index === traced)),
-  );
   const maxLen = Math.max(...lists.map((l) => l.length));
   for (let i = 0; i < maxLen; i++) for (const l of lists) if (l[i]) rest.push(l[i]);
-  const chimes = SFX.seamChimes.filter((c) => c > EVENTS.trace.to);
+  const chimes = SFX.seamChimes.filter((c) => c > t1);
   rest.forEach((c, i) => {
     const slot = chimes[Math.min(chimes.length - 1, Math.floor((i * chimes.length) / rest.length))];
     slots.push({ ...c, end: slot, start: slot - FILL_FRAMES });
@@ -125,10 +160,24 @@ export const sealAt = (f: number, kind: BotKind): number[] => {
   const out = set.cracks.map(() => 0);
   for (const s of sealSchedule()) {
     if (s.kind !== kind) continue;
-    // the traced crack fills right behind the claw tip (which eases along it); the rest pour in
-    out[s.index] =
-      s.index === set.longest && kind === 'bubble' ? easeInOutCubic(invLerp(s.start, s.end, f - 1)) : easeOutCubic(invLerp(s.start, s.end, f));
+    // the traced crack fills right behind the claw tip, which leads off fast so
+    // the gold shows as the words land; the rest pour in
+    out[s.index] = s.index === set.longest && kind === 'bubble' ? traceU(f - 1) : easeOutCubic(invLerp(s.start, s.end, f));
   }
+  return out;
+};
+
+// How far along the traced crack the claw tip is (0..1).
+export const traceU = (f: number) => {
+  const t = invLerp(EVENTS.trace.from, EVENTS.trace.to, f);
+  return 1 - (1 - t) * (1 - t); // ease out: quick off the mark, gentle at the end
+};
+
+// A quick sparkle at each seam's end as it closes (8 frames).
+export const popAt = (f: number, kind: BotKind): number[] => {
+  const set = strikeCracks()[kind];
+  const out = set.cracks.map(() => 0);
+  for (const s of sealSchedule()) if (s.kind === kind && f >= s.end) out[s.index] = Math.max(0, 1 - (f - s.end) / 8);
   return out;
 };
 
@@ -147,7 +196,7 @@ export const strikeState = (f: number, kind: BotKind): CrackState => {
   // own gold fills, in the bot's crack layer).
   const weak = clamp((s - 4) / 6) * (1 - invLerp(done, done + 4, f));
   const warm = f < done ? 0 : f < done + 6 ? invLerp(done, done + 6, f) : 1 - invLerp(done + 6, done + 36, f);
-  return { set, grow, weak, pulseFrame: f, seal, warm: clamp(warm) };
+  return { set, grow, weak, pulseFrame: f, seal, warm: clamp(warm), pop: f >= EVENTS.trace.from ? popAt(f, kind) : undefined };
 };
 
 // The cracks' red light on the stage and on Diablo: the open share of the weak spots.

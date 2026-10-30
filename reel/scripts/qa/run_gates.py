@@ -40,7 +40,7 @@ What is measured (thresholds are the constants below)
       → bbox vs the words zone and distance to the nearest non-background pixel; right-rail pixels
       (x ≥ 936, y 800–1248, stage line, wipe and flash excluded); end-card text inside the core area
   G4  tesseract on the words region (2×, psm 6 then 4) one frame per shot and the end card; on whole
-      stills, for digits/% (conf ≥ 75) and stray words (conf ≥ 85), text-sized tokens only: psm 11 on the
+      stills, for digits/% (conf ≥ 80) and stray words (conf ≥ 85), text-sized tokens only: psm 11 on the
       inverted frame (light glyphs on the dark ground) and psm 11 on a sheet of the marks lifted off the
       bots, their screens and Diablo, one cluster per line (a number standing clear on a bot). Single
       digits and glyphs touching an eye, crack, claw or Diablo's outline are missed, so the G5/G7
@@ -135,7 +135,8 @@ FLASH_JUMP = 0.10  # luma (0–1) above the neighbours' median
 SLOWMO_MAX_RATIO = 0.7
 CUT_MAX_DIST = 3  # frames
 CUT_FIND_SCORE, CUT_CONFIRM_SCORE = 4.0, 3.0  # change spike vs its neighbours: to find a cut / to confirm a planned one
-OCR_DIGIT_CONF = 75  # real digits read at 96–97; eyes and claws read as "00"/"4" at up to 63 on clean frames
+OCR_DIGIT_CONF = 80  # planted digits read at 93–97; on 60 clean frames claws read as "4" at up to 72 (eyes and
+# shards on a bot's shell, "00"/"4" at up to 93, are the bot sheet's job: the inverted pass ignores tokens there)
 OCR_DIGIT_UNSURE = 50  # text-sized digit tokens from here up to OCR_DIGIT_CONF are listed for a look, not failed
 OCR_STRAY_CONF = 85
 OCR_TOKEN_PX = (12, 160)  # word-box heights that can be text here (the 120 px name is ~120 px with descenders)
@@ -1214,7 +1215,24 @@ def ocr_targets(ctx: Ctx) -> list[tuple[int, list[str], Box, str]]:
 SHEET_LINE_PX, SHEET_GAP, SHEET_MARGIN = 64, 40, 16
 
 
-def porcelain_sheet(rgb: np.ndarray) -> tuple[Image.Image, list[tuple[int, int, float, Box]]] | None:
+def bot_shapes(rgb: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """→ (shapes, light, coloured, luma). Shapes: the bots' shells, i.e. big light neutral areas with a solid
+    core (≥ 4000 px, surviving a 10 px erosion; words and claws have no 20 px core), gaps closed, holes filled."""
+    y = luma_of(rgb)
+    rgbi = rgb.astype(np.int16)
+    coloured = (rgbi.max(axis=2) - rgbi.min(axis=2)) >= 60
+    light = ndimage.binary_opening((y > 0.6) & ~coloured, iterations=2)
+    ll, ln = ndimage.label(light)
+    if ln:
+        sizes = ndimage.sum(light, ll, index=np.arange(1, ln + 1))
+        cored = np.unique(ll[ndimage.binary_erosion(light, iterations=10)])
+        solid_light = np.isin(ll, [k for k in cored if k and sizes[k - 1] >= 4000])
+    else:
+        solid_light = np.zeros_like(light)
+    return ndimage.binary_fill_holes(ndimage.binary_closing(solid_light, iterations=6)), light, coloured, y
+
+
+def porcelain_sheet(rgb: np.ndarray, bs=None) -> tuple[Image.Image, list[tuple[int, int, float, Box]]] | None:
     """The marks on the bots and on Diablo, one glyph-sized cluster per line on a white sheet, each scaled to
     ~64 px tall → (sheet, [(sheet y0, sheet y1, scale, frame box)]). In the whole frame tesseract takes a bot
     for one big glyph and misses what is on it; on the sheet each mark is alone on white paper. Marks are
@@ -1222,14 +1240,8 @@ def porcelain_sheet(rgb: np.ndarray) -> tuple[Image.Image, list[tuple[int, int, 
     or gold strokes on a solid dark panel in one (a screen), and light strokes on a big maroon shape (Diablo).
     Strokes are 8–170 px tall and not solid; clusters 12–180 px. A mark touching another (an eye, a crack,
     a claw) merges with it and usually reads as low-confidence junk."""
-    y = luma_of(rgb)
+    shapes, light, coloured, y = bs if bs is not None else bot_shapes(rgb)
     rgbi = rgb.astype(np.int16)
-    coloured = (rgbi.max(axis=2) - rgbi.min(axis=2)) >= 60
-    light = ndimage.binary_opening((y > 0.6) & ~coloured, iterations=2)
-    region = ndimage.binary_fill_holes(ndimage.binary_closing(light, iterations=6))
-    lab, n = ndimage.label(region)
-    sizes = ndimage.sum(region, lab, index=np.arange(1, n + 1)) if n else np.zeros(0)
-    shapes = np.isin(lab, 1 + np.flatnonzero(sizes >= 4000))
 
     def glyph_sized(mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """→ (glyph-sized strokes, blocks: too big or too solid to be a glyph)."""
@@ -1295,14 +1307,19 @@ def porcelain_sheet(rgb: np.ndarray) -> tuple[Image.Image, list[tuple[int, int, 
 
 
 def ocr_still_passes(ctx: Ctx, rgb: np.ndarray, f: int) -> list[tuple[str, dict, tuple[int, int, float]]]:
-    """Every word tesseract finds in one frame, per pass → [(pass, row, (x, y, height) in frame pixels)]."""
+    """Every word tesseract finds in one frame, per pass → [(pass, row, (x, y, height) in frame pixels)].
+    A pass name ending in "(ignored)" marks a token that pass cannot be trusted with."""
     out = []
-    # light glyphs on the dark ground: brightness stretched and inverted, sparse text
+    bs = bot_shapes(rgb)
+    # light glyphs on the dark ground: brightness stretched and inverted, sparse text. On a bot's shell it reads
+    # the cracks and shards (an ember shard came out as "4" at conf 93): the sheet below covers the bots.
     for r in tesseract(ocr_prep(rgb, 1), 11, ctx.tmp, f"full-{f}-inv"):
-        out.append(("psm11-inverted", r, (int(r.get("left", 0)) - 20, int(r.get("top", 0)) - 20, r.get("height", 0))))
+        x, y, w, h = int(r.get("left", 0)) - 20, int(r.get("top", 0)) - 20, int(r.get("width", 0)), r.get("height", 0)
+        cx, cy = min(W - 1, max(0, x + w // 2)), min(H - 1, max(0, int(y + h / 2)))
+        out.append(("psm11-inverted" + (" on a bot (ignored)" if bs[0][cy, cx] else ""), r, (x, y, h)))
     # the marks on the bots and on Diablo, one cluster per line (psm 12 on the plain grey frame was tried: it found
     # nothing the sheet misses and read a claw as "4" at conf 63)
-    ps = porcelain_sheet(rgb)
+    ps = porcelain_sheet(rgb, bs)
     if ps is not None:
         sheet, rows = ps
         for r in tesseract(sheet, 11, ctx.tmp, f"full-{f}-sheet"):
@@ -1331,6 +1348,10 @@ def still_tokens(ctx: Ctx, rgb: np.ndarray, f: int, expected, expected_word) -> 
             continue
         text_sized = OCR_TOKEN_PX[0] <= hgt <= OCR_TOKEN_PX[1]
         info = {"frame": f, "text": tok, "conf": conf, "height_px": round(hgt, 1), "at": [x, y], "pass": name}
+        if name.endswith("(ignored)"):
+            if re.search(r"[0-9%]", tok) and not expected_word(tok):
+                ignored.append({**info, "kind": "digit"})
+            continue
         if re.search(r"[0-9%]", tok) and not expected_word(tok):
             if not (conf >= OCR_DIGIT_CONF and text_sized):
                 ignored.append({**info, "kind": "digit"})
@@ -1408,8 +1429,8 @@ def g4_text(ctx: Ctx, fr: Frames) -> Result:
     for s in stray:
         problems.append(f"f{s['frame']}: stray {s['kind']} “{s['text']}” (conf {s['conf']:.0f}, {s['pass']}, "
                         f"at x {s['at'][0]} y {s['at'][1]})")
-    unsure = [i for i in ignored
-              if i["conf"] >= OCR_DIGIT_UNSURE and OCR_TOKEN_PX[0] <= i["height_px"] <= OCR_TOKEN_PX[1]]
+    unsure = [i for i in ignored if i["conf"] >= OCR_DIGIT_UNSURE and not i["pass"].endswith("(ignored)")
+              and OCR_TOKEN_PX[0] <= i["height_px"] <= OCR_TOKEN_PX[1]]
     min_size = min(sizes, key=lambda s: s[0]) if sizes else None
     min_con = min(contrasts, key=lambda c: c[0]) if contrasts else None
     if max(max_words_cfg, max_words_ocr) > 4:

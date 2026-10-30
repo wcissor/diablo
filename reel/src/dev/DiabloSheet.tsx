@@ -6,7 +6,7 @@ import { Canvas } from '../stage/Camera';
 import { LightPool, StageLine } from '../stage/Stage';
 import { Grain, Vignette } from '../stage/Grain';
 import { DiabloHead, eyeCentres, Mark, type DiabloEyeState } from '../cast/Diablo';
-import { clawTips, Hand, handBounds } from '../cast/Hands';
+import { clawTips, Hand, handBounds, leadTip } from '../cast/Hands';
 import { Tail, tailTips } from '../cast/Tail';
 import type { HandProps, HeadProps, TailRing } from '../cast/types';
 import type { Pt } from '../lib/anim';
@@ -16,7 +16,8 @@ import type { Pt } from '../lib/anim';
 // 100 strike pose with clawTips markers           150 narrowed eyes, look, crescent with 4 seams
 // 200 ring half swept                              250 ring closed with gold edge
 // 300 silhouettes on cream                         350 the mark   360 the mark mid-blink
-// 400 claw-tip check at several poses (large)   450 rising head, flipped scythe, ring at 0.93
+// 400 claw-tip check at several poses (large)   410 pointing: one claw leads, three tucked (leadTip markers)
+// 450 rising head, flipped scythe, ring at 0.93
 // 500 eye states: open / narrow 0.5 / narrow 1 (pleased) / glare 1 (menacing)
 
 // Faint outlines where the bots will stand.
@@ -198,6 +199,36 @@ export const DiabloSheet: React.FC = () => {
               {eyeCentres(head).map((e, j) => (
                 <Marker key={j} p={e} r={2} />
               ))}
+            </g>
+          );
+        })}
+      </Canvas>
+    );
+  } else if (frame >= 410 && frame < 450) {
+    // Pointing: one claw leads, the other three tucked. Top: the two asked-for
+    // poses, large. Bottom: point 0.5 (mid-transition) and other pointClaw
+    // choices. Lead tips in gold-free magenta, the other tips in cyan.
+    const poses: HandProps[] = [
+      { side: 'left', x: 300, y: 560, rot: 20, spread: 0.5, curl: 0.4, point: 1, pointClaw: 1 },
+      { side: 'right', x: 780, y: 560, rot: -20, spread: 0.5, curl: 0.4, point: 1 },
+      { side: 'left', x: 190, y: 1260, rot: 0, spread: 0.5, curl: 0.4, point: 0.5, scale: 0.8 },
+      { side: 'right', x: 540, y: 1260, rot: -28, spread: 0.2, curl: 0.4, point: 1, pointClaw: 0, scale: 0.8 },
+      { side: 'left', x: 890, y: 1260, rot: 10, spread: 0.8, curl: 0.85, point: 1, pointClaw: 2, scale: 0.8, tremble: 3, frame },
+    ];
+    body = (
+      <Canvas>
+        <rect width={1080} height={1920} fill={C.night} />
+        {poses.map((p, i) => {
+          const b = handBounds(p);
+          return (
+            <g key={i}>
+              <Hand {...p} />
+              <rect x={b.x0} y={b.y0} width={b.x1 - b.x0} height={b.y1 - b.y0} fill="none" stroke="#00E5FF" strokeOpacity={0.3} strokeDasharray="4 6" />
+              {clawTips(p).map((t, j) => (
+                <Marker key={j} p={t} r={4} />
+              ))}
+              <Marker p={leadTip(p)} r={9} color="#FF3DF5" />
+              <Marker p={{ x: p.x, y: p.y }} r={3} color="#7CFF6B" />
             </g>
           );
         })}

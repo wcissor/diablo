@@ -72,6 +72,7 @@ export interface HeadProps {
   warm?: number; // 0..1 warm gold light from the seams
   silhouette?: boolean; // impact flash: flat night shape
   clipBelowY?: number; // stage y below which the head is hidden (rising from behind the stage line)
+  ghost?: number; // 0..1 with eyesOnly: the faint cream top-edge rim of head and horns (× 35 % opacity), no fill
 }
 
 export interface HandPose {
@@ -82,6 +83,8 @@ export interface HandPose {
   spread?: number; // 0..1 claws fanned apart
   curl?: number; // 0..1 claws hooked in, tips forward (strike)
   scale?: number; // 1 = palm half the head width (240 px)
+  point?: number; // 0..1 one claw extends straight-ish and leads; the other three curl back tight against the palm
+  pointClaw?: number; // which claw points, an index into clawTips() order (0 outer, 1 middle, 2 inner, 3 thumb); default 1
 }
 
 export interface HandProps extends HandPose {
@@ -119,10 +122,12 @@ export interface TailProps {
   ember?: number;
   warm?: number;
   silhouette?: boolean;
+  keyline?: number; // 0..1 a 2 px cream outline round the crescent and ring at this opacity (separates it from the head)
 }
 
 export interface MarkProps {
   blink: number; // 0..1 (1 = eyes shut)
   opacity?: number;
   scale?: number; // multiplies the 420 px mark
+  seam?: number; // 0..1 one gold kintsugi seam drawing in across the crescent
 }

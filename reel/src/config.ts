@@ -58,14 +58,16 @@ export const EVENTS = {
   trace: { from: 222, to: 252 }, // one claw tip runs along the bubble's longest crack
   fillAll: { from: 258, stagger: 3 }, // the other cracks fill, about 3 frames apart
   allSealed: 294, // 9.8 s: the light turns warm gold
-  tailSeams: { from: 330, stagger: 2, count: 14 }, // his seams appear on his crescent, one by one
+  tailSeams: { from: 330, stagger: 2, count: 14, travel: 12 }, // a gold spark per seam flies to his crescent; that seam draws in as it lands
   crack1: { at: 366, flick: 372, sealFrames: 6 }, // hairline on the orb
   crack2: { at: 402, sealFrames: 3 }, // tiny crack on the cube, sealed before it notices
   eyesNarrow: 408,
   riseProud: 450,
+  glint: { from: 462, to: 484 }, // light runs along every gold seam as they stand proud
   ring: { from: 474, to: 504 }, // the tail sweeps round the bots and closes into a ring
   hop: 504,
   wipe: { from: 540, to: 548 }, // a 9° wipe to night
+  markSeam: { from: 552, to: 566 }, // one gold seam draws across the mark's crescent
   blink: { from: 570, to: 578 },
   slitClose: { from: 588, to: 597 }, // black by frame 597 and to the end
 };
@@ -124,6 +126,8 @@ export const SFX = {
   flick2: 402,
   ringWhoosh: 490,
   ringClick: 504,
+  // each gold spark landing on his crescent in shot 5 (a soft rising chime)
+  learnSparks: Array.from({ length: EVENTS.tailSeams.count }, (_, i) => EVENTS.tailSeams.from + EVENTS.tailSeams.travel + EVENTS.tailSeams.stagger * i),
   endHit: 540,
   slitCloseAir: 588,
 };
