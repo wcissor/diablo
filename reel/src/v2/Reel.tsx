@@ -7,7 +7,7 @@ import { AbsoluteFill } from 'remotion';
 import { END_CARD } from '../config';
 import { BOTS, STAGE_Y } from '../geometry';
 import { C, FONT } from '../theme';
-import { ConceptBotImpl as Bot } from '../concepts/final/Bot';
+import { ConceptBotImpl as Bot } from '../bots/Bot';
 import * as T from './timeline';
 import { holeD, Ribbon, Rings, Sparkle } from './kit';
 import { FlatMark } from './Mark';

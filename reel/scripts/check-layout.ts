@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DURATION, END_CARD } from '../src/config';
 import { BOTS, RIGHT_RAIL, SAFE, STAGE_Y } from '../src/geometry';
-import { BOT_BOX } from '../src/concepts/_kit/types';
+import { BOT_BOX } from '../src/bots/kit/types';
 import { MARK_BOX } from '../src/logo';
 import * as T from '../src/v2/timeline';
 

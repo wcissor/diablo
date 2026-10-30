@@ -1,4 +1,4 @@
-// Dev-only entry for the bolt concept's lab compositions.
+// Dev-only entry for the final bots' lab pages (lab.tsx).
 import { registerRoot } from 'remotion';
 import { LabRoot } from './lab';
 

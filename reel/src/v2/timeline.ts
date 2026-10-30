@@ -6,8 +6,8 @@ import { BLINKS, END_CARD, EVENTS, SHOTS } from '../config';
 import { BOTS, SAFE, STAGE_Y, type BotKind } from '../geometry';
 import { C } from '../theme';
 import { clamp, easeInBack, easeInCubic, easeInOutCubic, easeOutCubic, invLerp, lerp, type Pt } from '../lib/anim';
-import { SLASH_DIR, type Mood } from '../concepts/_kit/types';
-import { DAMAGE_AT, SLASH_LINE } from '../concepts/final/Bot';
+import { SLASH_DIR, type Mood } from '../bots/kit/types';
+import { DAMAGE_AT, SLASH_LINE } from '../bots/Bot';
 import { EYES, EYES_MID, HEAD_BOX, MARK_BOX } from '../logo';
 
 export const KINDS: BotKind[] = ['bubble', 'cube', 'orb'];

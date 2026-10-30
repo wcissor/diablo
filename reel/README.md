@@ -2,9 +2,12 @@
 
 A 20-second vertical intro reel for **Diablo — AI that evolves AI**, for
 Instagram Reels and TikTok, in a fast flat motion-graphics style on white and
-maroon at 120 BPM. Three bots pop in and look fine; Diablo's mark drops in, the
-camera dives into his eye, three slashes crack the bots, a lens finds each
-crack, white seams fix them, colour beats carry "AI that evolves AI", and
+maroon at 120 BPM. Three flat mascot bots (a chat bubble, a TV-head robot and a
+hovering orb) pop in and look fine; Diablo's mark drops in and the camera dives
+into his eye. Each of his three slashes lands as a white swipe with a quick wince
+and a two-frame glitch, and chips a lightning-bolt notch out of a bot (a chipped
+toy, never a wound). A lens finds each chip, white seams pour into the notches
+and leave white bolt badges, colour beats carry "AI that evolves AI", and
 everything collapses into a dot that draws his crescent for the end card.
 Every frame is vector art drawn in code; every sound is synthesised in code.
 
@@ -45,6 +48,12 @@ While working: `npm run studio` opens Remotion Studio, and
 bundle. `npx tsx scripts/check-layout.ts` checks every frame's layout (safe
 area, words clearance, right rail) from the timeline itself.
 
+The bots render on their own too: `npx tsx scripts/stills.ts out/dev/bots/sheet 0
+--comp=Sheet --entry=src/bots/index.ts` freezes every state on one page, and
+`--comp=Strip` plays the reel's hit and seal rhythm on the bot row. Close-up lab
+pages (`--entry=src/bots/lab-index.ts`, compositions Zoom, Hits, Fix, Cheer,
+White) show the damage at the lens's 2.1x, every hit frame and every seal step.
+
 ## Change the words or the timing
 
 Every word on screen, every voice line, every beat and every event frame lives
@@ -76,7 +85,8 @@ src/theme.ts          the palette (white, maroon, night, porcelain, ember) and t
 src/geometry.ts       canvas, safe zones, where the bots stand
 src/logo.ts           the mark traced from the logo: head, crescent, eyes
 src/v2/timeline.ts    the whole reel as pure functions of the frame
-src/v2/               the renderer, kinetic type, the flat mark, rings/ribbons/bursts
-src/cast/             the bots and their cracks and seams
+src/v2/               the renderer, kinetic type, the flat mark, rings/ribbons/glints
+src/bots/             the three bots: art, faces, the hit, the chip, the white seam
+src/bots/kit/         the bots' contract, plus Sheet/Strip dev compositions
 scripts/audio/        score and effects synthesis, mix, voice, captions, checks
 ```

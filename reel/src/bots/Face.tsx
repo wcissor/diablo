@@ -1,14 +1,16 @@
-// Faces: big bean eyes with two highlights and a mouth, so every mood reads at
-// phone size. The cube's face is light on its dark screen. Eye shapes are
-// computed polygons (clipped ellipses), so no per-instance SVG ids are needed.
+// Faces (split's): solid glossy bean eyes with two highlights, blush and a small
+// mouth, so every mood reads at phone size. The cube's face is light on its
+// dark screen. Eye shapes are computed polygons (clipped ellipses), so no
+// per-instance SVG ids are needed. Added for the hit: a "> <" wince with a
+// short flat mouth (>_<).
 
 import React from 'react';
-import type { BotKind } from '../_kit/types';
+import type { BotKind } from './kit/types';
 import { clipPoly, ellipsePts, fx, polyD, type Pt } from './geom';
 import { SPEC, type Pal } from './spec';
 
-export type EyeMode = 'open' | 'worried' | 'proud' | 'joy' | 'wide';
-export type MouthMode = 'smile' | 'grin' | 'wavy' | 'o';
+export type EyeMode = 'open' | 'worried' | 'joy' | 'wide' | 'wince';
+export type MouthMode = 'smile' | 'grin' | 'wavy' | 'o' | 'eep';
 
 export interface FaceState {
   eye: EyeMode;
@@ -16,7 +18,6 @@ export interface FaceState {
   blink: number; // 0..1
   look: Pt; // −1..1
   pupil: number; // wide eyes: pupil size (1 = normal)
-  jitter: Pt; // px, a tremble of the wide eyes' pupils
   blush: number; // 0..1
 }
 
@@ -26,10 +27,8 @@ interface Ink {
   hi: string | null; // the eyes' highlights
   tongue: string | null;
   glow: string; // the screen's glow around light features
-  light: string; // white: the wide eyes' whites and glints
+  light: string; // white: the wide eyes' whites
 }
-
-const lerpPt = (a: Pt, b: Pt, k: number): Pt => ({ x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k });
 
 const Eye: React.FC<{ cx: number; cy: number; rx: number; ry: number; side: 1 | -1; st: FaceState; c: Ink; screen: boolean }> = ({
   cx,
@@ -43,29 +42,32 @@ const Eye: React.FC<{ cx: number; cy: number; rx: number; ry: number; side: 1 | 
 }) => {
   const k = Math.max(0.08, 1 - st.blink);
   const lineW = screen ? 5 : 5.5;
+  const stroked = (d: string, w: number) => (
+    <g>
+      {screen ? <path d={d} fill="none" stroke={c.glow} strokeWidth={w + 9} strokeLinecap="round" strokeLinejoin="round" /> : null}
+      <path d={d} fill="none" stroke={c.fg} strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" />
+    </g>
+  );
+  if (st.eye === 'wince') {
+    // > <: a chevron pointing at the nose, squeezed shut for one beat.
+    const q = -side;
+    const d = `M${fx(cx - q * rx * 0.8)} ${fx(cy - ry * 0.58)}L${fx(cx + q * rx * 0.72)} ${fx(cy + 1)}L${fx(cx - q * rx * 0.8)} ${fx(cy + ry * 0.6)}`;
+    return stroked(d, lineW + 1);
+  }
   if (st.eye === 'joy') {
     const d = `M${fx(cx - rx * 0.95)} ${fx(cy + ry * 0.32)}Q${fx(cx)} ${fx(cy - ry * 1.05)} ${fx(cx + rx * 0.95)} ${fx(cy + ry * 0.32)}`;
-    return (
-      <g>
-        {screen ? <path d={d} fill="none" stroke={c.glow} strokeWidth={lineW + 9} strokeLinecap="round" /> : null}
-        <path d={d} fill="none" stroke={c.fg} strokeWidth={lineW + 0.5} strokeLinecap="round" />
-      </g>
-    );
+    return stroked(d, lineW + 0.5);
   }
   if (st.blink > 0.86) {
     const d = `M${fx(cx - rx)} ${fx(cy + 1)}Q${fx(cx)} ${fx(cy + ry * 0.4)} ${fx(cx + rx)} ${fx(cy + 1)}`;
-    return (
-      <g>
-        {screen ? <path d={d} fill="none" stroke={c.glow} strokeWidth={lineW + 9} strokeLinecap="round" /> : null}
-        <path d={d} fill="none" stroke={c.fg} strokeWidth={lineW} strokeLinecap="round" />
-      </g>
-    );
+    return stroked(d, lineW);
   }
   if (st.eye === 'wide') {
+    // The double-take: wide white eyes, pin pupils.
     const R = ry * 1.1;
     const reach = R - 7.5;
-    const px = cx + st.look.x * reach + st.jitter.x;
-    const py = cy + st.look.y * reach + st.jitter.y;
+    const px = cx + st.look.x * reach;
+    const py = cy + st.look.y * reach;
     const pr = 5.4 * st.pupil;
     return screen ? (
       <g>
@@ -81,7 +83,7 @@ const Eye: React.FC<{ cx: number; cy: number; rx: number; ry: number; side: 1 | 
     );
   }
   const ryk = ry * k;
-  let d: string;
+  let d = '';
   let hi: Pt = { x: cx + rx * 0.3, y: cy - ryk * 0.33 };
   if (st.eye === 'worried') {
     // The outer top is cut by a slanted lid: inner corner high, outer corner low.
@@ -90,17 +92,9 @@ const Eye: React.FC<{ cx: number; cy: number; rx: number; ry: number; side: 1 | 
     const g = (p: Pt) => p.y - (O.y + ((I.y - O.y) * (p.x - O.x)) / (I.x - O.x));
     d = polyD(clipPoly(ellipsePts(cx, cy, rx, ryk), g));
     hi = { x: cx + rx * 0.24, y: cy + ryk * 0.02 };
-  } else if (st.eye === 'proud') {
-    // Smiling eyes: the cheek pushes up a concave lower lid.
-    const L = { x: cx - rx * 0.96, y: cy + ryk * 0.3 };
-    const R = { x: cx + rx * 0.96, y: cy + ryk * 0.3 };
-    d = `M${fx(L.x)} ${fx(L.y)}A${fx(rx)} ${fx(ryk)} 0 1 1 ${fx(R.x)} ${fx(R.y)}Q${fx(cx)} ${fx(cy - ryk * 0.22)} ${fx(L.x)} ${fx(L.y)}Z`;
-    hi = { x: cx + rx * 0.3, y: cy - ryk * 0.42 };
-  } else {
-    d = '';
   }
   const hiR = rx * (st.eye === 'worried' ? 0.32 : 0.36);
-  const lo = lerpPt({ x: cx - rx * 0.34, y: cy + ryk * 0.4 }, { x: cx, y: cy }, st.eye === 'proud' ? 0.6 : 0);
+  const lo = { x: cx - rx * 0.34, y: cy + ryk * 0.4 };
   return (
     <g>
       {screen ? (
@@ -114,7 +108,7 @@ const Eye: React.FC<{ cx: number; cy: number; rx: number; ry: number; side: 1 | 
       {c.hi && k > 0.45 ? (
         <>
           <circle cx={hi.x} cy={hi.y} r={hiR} fill={c.hi} />
-          {st.eye !== 'proud' ? <circle cx={lo.x} cy={lo.y} r={rx * 0.15} fill={c.hi} /> : null}
+          <circle cx={lo.x} cy={lo.y} r={rx * 0.15} fill={c.hi} />
         </>
       ) : null}
     </g>
@@ -139,6 +133,16 @@ const Mouth: React.FC<{ x: number; y: number; mode: MouthMode; c: Ink; screen: b
       <ellipse transform={tr} cx={0} cy={3} rx={6.8} ry={8.8} fill={c.fg} />
     );
   }
+  if (mode === 'eep') {
+    // the wince's mouth: a short flat line under the > <, a flinch (>_<), not a squeal
+    const d = 'M-9 2H9';
+    return (
+      <g transform={tr}>
+        {screen ? <path d={d} fill="none" stroke={c.glow} strokeWidth={14} strokeLinecap="round" /> : null}
+        <path d={d} fill="none" stroke={c.fg} strokeWidth={screen ? 5 : 4.8} strokeLinecap="round" />
+      </g>
+    );
+  }
   if (screen && mode === 'smile') {
     return (
       <g transform={tr}>
@@ -147,6 +151,7 @@ const Mouth: React.FC<{ x: number; y: number; mode: MouthMode; c: Ink; screen: b
       </g>
     );
   }
+  // grin: big; smile: smaller
   const [w, h] = mode === 'grin' ? [screen ? 18 : 20, screen ? 15 : 20] : [14, 15];
   return (
     <g transform={tr}>
