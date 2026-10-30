@@ -31,18 +31,12 @@ export const LightPool: React.FC<{
           <stop offset="0.55" stopColor={mix(C.night, centre, 0.55)} stopOpacity={0.85} />
           <stop offset="1" stopColor={C.night} stopOpacity={0} />
         </radialGradient>
-        <radialGradient id={`${id}-cone`} cx={cx} cy={cy - 900} r={900} gradientUnits="userSpaceOnUse" gradientTransform={`translate(${cx} ${cy - 900}) scale(0.55 1) translate(${-cx} ${-(cy - 900)})`}>
-          <stop offset="0" stopColor={centre} stopOpacity={0} />
-          <stop offset="0.8" stopColor={centre} stopOpacity={0.28 * level} />
-          <stop offset="1" stopColor={centre} stopOpacity={0} />
-        </radialGradient>
         <radialGradient id={`${id}-ember`} cx={cx} cy={cy + 20} r={rx * 0.8} gradientUnits="userSpaceOnUse" gradientTransform={`translate(${cx} ${cy + 20}) scale(1 ${(ry / rx) * 0.8}) translate(${-cx} ${-(cy + 20)})`}>
           <stop offset="0" stopColor={C.ember} stopOpacity={0.22 * ember} />
           <stop offset="1" stopColor={C.ember} stopOpacity={0} />
         </radialGradient>
       </defs>
       <rect x={-200} y={-200} width={WIDTH_PX + 400} height={2400} fill={C.night} />
-      <rect x={-200} y={-200} width={WIDTH_PX + 400} height={2400} fill={`url(#${id}-cone)`} />
       <ellipse cx={cx} cy={cy} rx={rx * 1.2} ry={ry * 1.2} fill={`url(#${id}-pool)`} />
       {ember > 0 ? <ellipse cx={cx} cy={cy + 20} rx={rx} ry={ry} fill={`url(#${id}-ember)`} /> : null}
     </g>

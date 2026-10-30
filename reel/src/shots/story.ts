@@ -7,7 +7,7 @@ import { EVENTS, SFX } from '../config';
 import type { BotKind } from '../geometry';
 import { BOTS } from '../geometry';
 import type { CrackSet, CrackState, HandPose, Pt, TailCrescentPose } from '../cast/types';
-import { botTop, makeCracks, makeHairline } from '../cast/Bots';
+import { makeCracks, makeHairline } from '../cast/Bots';
 import { clawTips } from '../cast/Hands';
 import { tailTips } from '../cast/Tail';
 import { clamp, easeOutCubic, invLerp, lerp } from '../lib/anim';
@@ -23,24 +23,27 @@ const aimHand = (pose: HandPose, target: Pt): HandPose => {
 
 // The claws land on the upper front of the bubble and the orb shells.
 export const IMPACT_TARGET: Record<'bubble' | 'orb', Pt> = {
-  bubble: { x: BOTS.bubble.cx + 6, y: 1030 },
-  orb: { x: BOTS.orb.cx - 6, y: 1018 },
+  bubble: { x: BOTS.bubble.cx + 9, y: 1018 },
+  orb: { x: BOTS.orb.cx - 5, y: 1016 },
 };
+// Where the tail's point taps the cube (its top face): the cube's cracks start here.
+export const CUBE_TAP: Pt = { x: BOTS.cube.cx - 8, y: 950 };
 
-export const STRIKE_LEFT: HandPose = aimHand({ side: 'left', x: 270, y: 700, rot: 8, spread: 0.55, curl: 0.85 }, IMPACT_TARGET.bubble);
-export const STRIKE_RIGHT: HandPose = aimHand({ side: 'right', x: 810, y: 700, rot: -8, spread: 0.55, curl: 0.85 }, IMPACT_TARGET.orb);
+export const STRIKE_LEFT: HandPose = aimHand({ side: 'left', x: 270, y: 700, rot: 20, spread: 0.55, curl: 0.85 }, IMPACT_TARGET.bubble);
+export const STRIKE_RIGHT: HandPose = aimHand({ side: 'right', x: 810, y: 700, rot: -20, spread: 0.55, curl: 0.85 }, IMPACT_TARGET.orb);
 
 // Hover poses (shot 2 end, shot 3 start): out to the sides and higher.
-export const HOVER_LEFT: HandPose = { side: 'left', x: STRIKE_LEFT.x - 40, y: STRIKE_LEFT.y - 150, rot: 22, spread: 1, curl: 0.15 };
-export const HOVER_RIGHT: HandPose = { side: 'right', x: STRIKE_RIGHT.x + 40, y: STRIKE_RIGHT.y - 150, rot: -22, spread: 1, curl: 0.15 };
+export const HOVER_LEFT: HandPose = { side: 'left', x: STRIKE_LEFT.x - 20, y: STRIKE_LEFT.y - 190, rot: 6, spread: 1, curl: 0.1 };
+export const HOVER_RIGHT: HandPose = { side: 'right', x: STRIKE_RIGHT.x + 20, y: STRIKE_RIGHT.y - 190, rot: -6, spread: 1, curl: 0.1 };
 
 // The tail rests behind Diablo's left side, then its point taps the cube.
-export const TAIL_REST: TailCrescentPose = { x: 238, y: 905, rot: 18, scale: 1.1 };
+export const TAIL_REST: TailCrescentPose = { x: 250, y: 880, rot: 10, scale: 1.0 };
 const aimTail = (pose: TailCrescentPose, target: Pt): TailCrescentPose => {
   const tip = tailTips(pose).lower;
   return { ...pose, x: pose.x + target.x - tip.x, y: pose.y + target.y - tip.y };
 };
-export const TAIL_TAP: TailCrescentPose = aimTail({ x: 400, y: 800, rot: -38, scale: 1.1 }, botTop('cube'));
+// Flipped, coming in from the upper left so its inner curve clears his left eye.
+export const TAIL_TAP: TailCrescentPose = aimTail({ x: 440, y: 820, rot: -8, scale: 0.8, flip: true }, CUBE_TAP);
 
 /* ───────────── Cracks ───────────── */
 
@@ -52,7 +55,7 @@ const memo = <T,>(f: () => T) => {
 export const strikeCracks = memo(
   (): Record<BotKind, CrackSet> => ({
     bubble: makeCracks('bubble', clawTips(STRIKE_LEFT), 'strike-bubble'),
-    cube: makeCracks('cube', [botTop('cube')], 'strike-cube'),
+    cube: makeCracks('cube', [CUBE_TAP], 'strike-cube'),
     orb: makeCracks('orb', clawTips(STRIKE_RIGHT), 'strike-orb'),
   }),
 );
@@ -65,7 +68,7 @@ export const hairlines = memo(() => ({
 export const pointOnCrack = (d: string, u: number): Pt => {
   const len = getLength(d);
   const p = getPointAtLength(d, clamp(u) * len);
-  return { x: p.x, y: p.y };
+  return p ? { x: p.x, y: p.y } : { x: 0, y: 0 };
 };
 export const crackLength = (d: string) => getLength(d);
 

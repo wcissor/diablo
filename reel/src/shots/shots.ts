@@ -4,7 +4,7 @@
 import { EVENTS, SHOTS } from '../config';
 import type { BotKind } from '../geometry';
 import { BOTS, DIABLO_EYES_Y } from '../geometry';
-import type { BotProps, CrackState, HandProps, HeadProps, Pt } from '../cast/types';
+import type { BotProps, CrackState, HandProps, Pt } from '../cast/types';
 import {
   clamp,
   easeInCubic,
@@ -16,7 +16,6 @@ import {
   ramp,
   settle,
   smooth,
-  wobble,
 } from '../lib/anim';
 import type { SceneState } from './Scene';
 import {
@@ -117,7 +116,7 @@ const tailSweep = (f: number) => {
   return {
     x: lerp(onArc.x, TAIL_REST.x, k),
     y: lerp(onArc.y, TAIL_REST.y, k),
-    rot: lerp((a * 180) / Math.PI + 120, TAIL_REST.rot, k) - over * 14,
+    rot: lerp((a * 180) / Math.PI + 120, TAIL_REST.rot ?? 0, k) - over * 14,
     scale: TAIL_REST.scale,
   };
 };
@@ -266,8 +265,9 @@ export const shot3 = (f: number): SceneState => {
       eyes: { open: 1, narrow: struck ? 0.25 : 0.15 * windK, look },
       ember,
     },
-    tailBack: struck && s < 22 ? undefined : { crescent: strikeTail(f), ember },
-    tailFront: struck && s < 22 ? { crescent: strikeTail(f), ember } : undefined,
+    // the tail comes round in front for the tap and stays there for the shot
+    tailBack: struck ? undefined : { crescent: strikeTail(f), ember },
+    tailFront: struck ? { crescent: strikeTail(f), ember } : undefined,
     hands: [strikeHand(f, 'left', ember), strikeHand(f, 'right', ember)],
     bots: mapBots((k) => {
       const hitSquash = struck ? 0.9 + 0.02 * clamp(s / 20) : 1 - 0.06;
@@ -403,7 +403,7 @@ export const shot5 = (f: number): SceneState => {
     light: { level: 1, warm: 0.7 },
     head: { eyes: { open: 1, look, narrow }, warm: 0.6 },
     tailFront: {
-      crescent: { x: lerp(60, 222, curl), y: 760, rot: lerp(-40, 14, curl), scale: 0.98 },
+      crescent: { x: lerp(90, 262, curl), y: 770, rot: lerp(-40, 8, curl), scale: 0.9 },
       seams: clamp((f - EVENTS.tailSeams.from) / EVENTS.tailSeams.stagger, 0, 8),
       warm: 0.5,
     },
@@ -444,7 +444,8 @@ export const shot6 = (f: number): SceneState => {
   const land = f >= hop + 12 ? Math.exp(-(f - hop - 12) / 4) * Math.cos((f - hop - 12) * 0.9) : 0;
   const narrow = ramp(f, EVENTS.ring.to - 2, EVENTS.ring.to + 8) * 0.8;
   const ring = (layer: 'back' | 'front') => ({ ...RING, progress: ringT, goldEdge: gold, layer, startAngle: Math.PI * 0.95 });
-  const crescentOut = 1 - smooth(invLerp(EVENTS.ring.from - 2, EVENTS.ring.from + 6, f));
+  // the crescent dives from his side to where the ring starts
+  const dive = easeInCubic(invLerp(EVENTS.ring.from - 6, EVENTS.ring.from + 2, f));
   return {
     frame: f,
     camera: { scale: push(f, 6, 1.05, 1.0) },
@@ -452,7 +453,16 @@ export const shot6 = (f: number): SceneState => {
     head: { dy: (1 - up) * 60, eyes: { open: 1, narrow }, warm: 0.8 },
     tailBack:
       f < EVENTS.ring.from + 6
-        ? { crescent: { ...TAIL_REST, y: TAIL_REST.y + (1 - up) * 60, scale: (TAIL_REST.scale ?? 1) * crescentOut }, seams: 8, warm: 0.6 }
+        ? {
+            crescent: {
+              x: lerp(TAIL_REST.x, RING.cx - RING.rx + 20, dive),
+              y: lerp(TAIL_REST.y + (1 - up) * 60, RING.cy, dive),
+              rot: lerp(TAIL_REST.rot ?? 0, -70, dive),
+              scale: (TAIL_REST.scale ?? 1) * (1 - 0.6 * dive),
+            },
+            seams: 8,
+            warm: 0.6,
+          }
         : { ring: ring('back'), seams: 8, warm: 0.6 },
     tailFront: f >= EVENTS.ring.from ? { ring: ring('front'), seams: 8, warm: 0.6 } : undefined,
     bots: mapBots((k) => ({
@@ -482,7 +492,6 @@ export const blurAt = (f: number) =>
   (f >= EVENTS.tailSweep.from && f <= EVENTS.tailSweep.to + 2) ||
   (f >= EVENTS.windUp.from && f < EVENTS.flash.from) ||
   (f > EVENTS.flash.to && f <= EVENTS.strike + 8) ||
-  (f >= EVENTS.ring.from && f <= EVENTS.ring.to + 2) ||
+  (f >= EVENTS.ring.from - 6 && f <= EVENTS.ring.to + 2) ||
   (f >= EVENTS.clawsUp.from && f <= EVENTS.clawsUp.from + 8);
 
-export const usedHeadEyes = (h?: HeadProps) => h;

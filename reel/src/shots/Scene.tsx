@@ -36,6 +36,13 @@ export const Scene: React.FC<{ s: SceneState; id: string }> = ({ s, id }) => {
         <clipPath id={`${id}-behind`}>
           <rect x={-400} y={-400} width={1880} height={STAGE_Y + 400} />
         </clipPath>
+        <linearGradient id={`${id}-reflfade`} x1="0" x2="0" y1={STAGE_Y} y2={STAGE_Y + 230} gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#fff" stopOpacity={0.2} />
+          <stop offset="1" stopColor="#fff" stopOpacity={0} />
+        </linearGradient>
+        <mask id={`${id}-refl`} maskUnits="userSpaceOnUse" x={-400} y={STAGE_Y} width={1880} height={400}>
+          <rect x={-400} y={STAGE_Y} width={1880} height={400} fill={`url(#${id}-reflfade)`} />
+        </mask>
       </defs>
       {sil ? (
         <rect x={-400} y={-400} width={1880} height={2720} fill={C.cream} />
@@ -48,6 +55,16 @@ export const Scene: React.FC<{ s: SceneState; id: string }> = ({ s, id }) => {
         </g>
       ) : null}
       {s.head ? <DiabloHead {...s.head} silhouette={sil} /> : null}
+      {sil ? null : (
+        // the bots' reflections in the glossy stage, fading out below it
+        <g mask={`url(#${id}-refl)`}>
+          <g transform={`translate(0 ${2 * STAGE_Y}) scale(1 -1)`}>
+            {ORDER.map((k) => (
+              <Bot key={k} kind={k} frame={s.frame} {...s.bots[k]} shadow={false} />
+            ))}
+          </g>
+        </g>
+      )}
       {sil ? null : <StageLine id={`${id}-line`} />}
       {ORDER.map((k) => (
         <Bot key={k} kind={k} frame={s.frame} {...s.bots[k]} silhouette={sil} />
