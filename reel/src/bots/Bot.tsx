@@ -263,7 +263,9 @@ export const ConceptBotImpl: ConceptBot = ({ kind, frame, bg, mood = 'happy', lo
 
       <Shadow kind={kind} lift={lift + Math.max(0, -ty)} x={tx * 0.4} sx={sx} color={pal.ground} />
 
-      {hit && t < 10 ? <Chips at={pointAt(D.line, D.mouth)} out={mul(D.d, -1)} t={t} seed={SEED[kind]} vchip={D.chip} fill={pal.body} ink={pal.ink} /> : null}
+      {hit && t < 10 ? (
+        <Chips at={pointAt(D.line, D.mouth)} out={mul(D.d, -1)} t={t} seed={SEED[kind]} vchip={D.chip} fill={pal.body} ink={pal.ink} speed={CHIP_SPEED[kind]} />
+      ) : null}
 
       <g transform={pose}>
         {/* the glitch: the bot's channels split for the impact frames */}
@@ -309,7 +311,7 @@ export const ConceptBotImpl: ConceptBot = ({ kind, frame, bg, mood = 'happy', lo
         </g>
 
         {glintF >= 1 && glintF < 7 ? <Ring at={mouthPad} r={9 + 16 * ramp(glintF, 1, 7, easeOutCubic)} w={3 * (1 - ramp(glintF, 1, 7))} color={pal.fx} /> : null}
-        {glintF >= 12 ? <Ring at={tipPad} r={8 + 12 * ramp(glintF, 12, 15, easeOutCubic)} w={2.4 * (1 - ramp(glintF, 12, 15))} color={pal.light} rim={pal.ink} /> : null}
+        {glintF >= 12 ? <Ring at={tipPad} r={8 + 12 * ramp(glintF, 12, 15, easeOutCubic)} w={2.4 * (1 - ramp(glintF, 12, 15))} color={pal.light} /> : null}
 
         {/* the chip flies back into its notch */}
         {sealing && sl < SNAP ? <ChipBack chip={D.chip} d={D.d} k={sl / SNAP} pal={pal} /> : null}
@@ -333,10 +335,13 @@ export const ConceptBotImpl: ConceptBot = ({ kind, frame, bg, mood = 'happy', lo
         {pouring && front > -1 ? <WeldHead at={head} pulse={Math.sin(frame * 1.9)} light={pal.light} /> : null}
 
         {/* the click as the chip lands */}
-        {sealing && sl >= SNAP && sl < SNAP + 0.25 ? (
+        {sealing && sl >= SNAP && sl < SNAP + 0.3 ? (
           <>
-            <Dot at={centroid(D.chip)} r={13 * keys(sl, [[SNAP, 0.6], [SNAP + 0.05, 1], [SNAP + 0.11, 0]])} fill={pal.light} rim={pal.ink} />
-            <Ring at={centroid(D.chip)} r={10 + 30 * ramp(sl, SNAP, SNAP + 0.22, easeOutCubic)} w={3.4 * (1 - ramp(sl, SNAP, SNAP + 0.22))} color={pal.fx} />
+            {/* a flash, then a ring once the flash has gone (a dot inside a ring reads as an eye) */}
+            <Dot at={centroid(D.chip)} r={13 * keys(sl, [[SNAP, 0.6], [SNAP + 0.05, 1], [SNAP + 0.11, 0]])} fill={pal.light} />
+            {sl >= SNAP + 0.1 ? (
+              <Ring at={centroid(D.chip)} r={14 + 26 * ramp(sl, SNAP + 0.1, SNAP + 0.3, easeOutCubic)} w={3.4 * (1 - ramp(sl, SNAP + 0.1, SNAP + 0.3))} color={pal.fx} />
+            ) : null}
           </>
         ) : null}
 
@@ -347,7 +352,7 @@ export const ConceptBotImpl: ConceptBot = ({ kind, frame, bg, mood = 'happy', lo
       </g>
 
       {/* the slash: a bar of light along its line (the reel's ribbon's arc), spilling out of both ends */}
-      {slash ? <SlashLight sp={slash} t={t} color={pal.fx} exitDrops={kind === 'cube'} /> : null}
+      {slash ? <SlashLight sp={slash} t={t} color={pal.fx} /> : null}
     </g>
   );
 };
@@ -380,6 +385,8 @@ const arcOf = (kind: BotKind) => {
 const SPILL = 26; // px the light runs past the outline where the blade comes in
 // ...and where it leaves: the bubble's and the orb's slashes leave toward the cube, so theirs stops short
 const SPILL_OUT: Record<BotKind, number> = { bubble: 6, cube: 26, orb: 6 };
+// The chips fly out toward the neighbours; slower, they drop close to their own bot.
+const CHIP_SPEED: Record<BotKind, number> = { bubble: 0.6, cube: 0.55, orb: 0.8 };
 const slashSpan = (kind: BotKind, toBody: (p: Pt) => Pt) => {
   const D = DAMAGE[kind];
   const arc = arcOf(kind);
@@ -443,7 +450,7 @@ const SlashCut: React.FC<{ sp: SlashSpan; t: number; fill: string }> = ({ sp, t,
 // on white) on the reel ribbon's own arc, widest at the impact point, thinning
 // out while the crack grows out of the line. Where it breaks out through the
 // outline, a round flare; then light spills off both ends as a few drops.
-const SlashLight: React.FC<{ sp: SlashSpan; t: number; color: string; exitDrops: boolean }> = ({ sp, t, color, exitDrops }) => {
+const SlashLight: React.FC<{ sp: SlashSpan; t: number; color: string }> = ({ sp, t, color }) => {
   const W = slashW(t);
   const drops = ramp(t, 0.7, 3.6);
   const ends: [Pt, Pt][] = [
@@ -455,7 +462,7 @@ const SlashLight: React.FC<{ sp: SlashSpan; t: number; color: string; exitDrops:
       {W > 0.3 ? <path d={sliverD(sp, W)} fill={color} /> : null}
       {t < 2 ? ends.map(([e], i) => <Dot key={`f${i}`} at={e} r={keys(t, [[0, 6.5], [1, 4.5], [2, 0]])} fill={color} />) : null}
       {drops > 0 && drops < 1
-        ? ends.slice(0, exitDrops ? 2 : 1).map(([e, v0], i) =>
+        ? ends.slice(0, 1).map(([e, v0], i) => // drops only where the blade comes in: the far side faces a neighbour
             [-14, 12].map((da, j) => {
               const v = rotate(v0, da);
               const q = add(e, v, 5 + (j ? 22 : 16) * easeOutCubic(drops));

@@ -178,7 +178,7 @@ export const dotsAt = (f: number): DotView[] => {
 // bots (ears and mitts included), so a swipe never spears the wrong bot.
 const SLASH_BOW = 20; // px the arc's control point sits off the line
 // (the blade's round head reaches half its width past these)
-const SLASH_X: Record<BotKind, [number, number]> = { bubble: [SAFE.x0 + 6, 385], cube: [392, 672], orb: [695, SAFE.x1 - 6] };
+const SLASH_X: Record<BotKind, [number, number]> = { bubble: [SAFE.x0 + 6, 385], cube: [405, 672], orb: [695, SAFE.x1 - 6] };
 export interface Arc {
   p0: Pt;
   c: Pt;
@@ -241,6 +241,7 @@ export interface LensView {
   zoom: number;
   snap: number; // the rim's scale kick as it locks on (1 at rest)
   spin: number; // degrees
+  content: boolean; // false while it jumps between bots: only the reticle shows
 }
 // The lens: on the "finds" beat it pops onto the bubble's chip, jumps to the
 // cube's and the orb's, and shrinks away; on the "fixes" beat it comes back and
@@ -248,9 +249,11 @@ export interface LensView {
 // sits on the point each slash chipped, kept inside the safe area.
 const LENS_R = 130;
 const LENS_REACH = LENS_R * 1.12 + 34; // rim at full snap plus its ticks
-const lensOn = (k: BotKind): Pt => {
+// ...riding the bot's hop, so the badge stays in view as the bot cheers
+const lensOn = (k: BotKind, f: number): Pt => {
   const p = damageScreen(k);
-  return { x: clamp(p.x, SAFE.x0 + LENS_REACH, SAFE.x1 - LENS_REACH), y: p.y };
+  const b = botsAt(f).find((v) => v.kind === k);
+  return { x: clamp(p.x, SAFE.x0 + LENS_REACH, SAFE.x1 - LENS_REACH), y: p.y - (b ? b.lift * b.scale : 0) };
 };
 const LENS_TOURS: { from: number; to: number; stops: [number, BotKind][] }[] = [
   {
@@ -276,12 +279,12 @@ export const lensAt = (f: number): LensView | null => {
   const tour = LENS_TOURS.find((t) => f >= t.from && f < t.to);
   if (!tour) return null;
   const { stops } = tour;
-  let c = lensOn(stops[0][1]);
+  let c = lensOn(stops[0][1], f);
   let last = 0;
   let hopK = 0; // it shrinks as it jumps, so no half-magnified blobs show in transit
   for (let j = 1; j < stops.length; j++) {
     const e = ramp(f, stops[j][0] - 3, stops[j][0], easeInOutCubic);
-    const n = lensOn(stops[j][1]);
+    const n = lensOn(stops[j][1], f);
     c = { x: lerp(c.x, n.x, e), y: lerp(c.y, n.y, e) };
     hopK = Math.max(hopK, Math.sin(Math.PI * e));
     if (f >= stops[j][0]) last = j;
@@ -293,6 +296,7 @@ export const lensAt = (f: number): LensView | null => {
     zoom: 2.1,
     snap: 1 + 0.12 * (1 - clamp(spring(f - lockAt, 1.6, 0.9))),
     spin: 90 * last + 90 * ramp(f, lockAt, lockAt + 6, easeOutCubic),
+    content: hopK < 0.2,
   };
 };
 
@@ -475,7 +479,8 @@ export const COVER_R = 1300; // covers the frame from anywhere inside it
 export const wipeInAt = (f: number): Circle | null =>
   f >= EVENTS.wipeIn.from && f < EVENTS.wipeIn.to ? { x: 540, y: 760, r: COVER_R * ramp(f, EVENTS.wipeIn.from, EVENTS.wipeIn.to, easeInOutCubic) } : null;
 export const wipeOutAt = (f: number): Circle | null =>
-  f >= EVENTS.wipeOut.from && f < EVENTS.wipeOut.to ? { ...DOT, r: COVER_R * ramp(f, EVENTS.wipeOut.from, EVENTS.wipeOut.to, easeInOutCubic) } : null;
+  // (it starts as a circle, not a dot: a dot on the cube's screen reads as a nose)
+  f >= EVENTS.wipeOut.from && f < EVENTS.wipeOut.to ? { ...DOT, r: 40 + (COVER_R - 40) * ramp(f, EVENTS.wipeOut.from, EVENTS.wipeOut.to, easeInOutCubic) } : null;
 // The hole in the black: open at the start, closing on his eyes at the end.
 export const irisAt = (f: number): Circle | null => {
   const O = EVENTS.irisOpen;

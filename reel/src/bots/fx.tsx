@@ -50,10 +50,10 @@ const GRAVITY = 2.6; // px/frame²
 const FLOOR = -7; // a landed chip's centre, just above the stage line
 
 // Where chip i is at hitT t: position, spin (degrees) and scale.
-export const chipAt = (i: number, t: number, from: Pt, out: Pt, seed: number) => {
+export const chipAt = (i: number, t: number, from: Pt, out: Pt, seed: number, speed = 1) => {
   const c = CHIPS[i];
   const a = (Math.atan2(out.y, out.x) * 180) / Math.PI + c.da + (hash(seed, i) - 0.5) * 14;
-  const v = rotate({ x: c.sp, y: 0 }, a);
+  const v = rotate({ x: c.sp * speed, y: 0 }, a);
   const vy = v.y - c.up;
   const k = t + 0.7; // they leave on the impact frame
   const drop = FLOOR - from.y;
@@ -67,13 +67,22 @@ export const chipAt = (i: number, t: number, from: Pt, out: Pt, seed: number) =>
   };
 };
 
-export const Chips: React.FC<{ at: Pt; out: Pt; t: number; seed: number; vchip: Pt[]; fill: string; ink: string }> = ({ at, out, t, seed, vchip, fill, ink }) => {
+export const Chips: React.FC<{ at: Pt; out: Pt; t: number; seed: number; vchip: Pt[]; fill: string; ink: string; speed?: number }> = ({
+  at,
+  out,
+  t,
+  seed,
+  vchip,
+  fill,
+  ink,
+  speed = 1,
+}) => {
   if (t < 0 || t >= 10) return null;
   const cv = centroid(vchip);
   return (
     <g>
       {CHIPS.map((_, i) => {
-        const s = chipAt(i, t, i === 0 ? cv : at, out, seed);
+        const s = chipAt(i, t, i === 0 ? cv : at, out, seed, speed);
         if (s.sc <= 0.02) return null;
         const size = [0, 11, 8.5][i];
         const tri =

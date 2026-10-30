@@ -107,8 +107,9 @@ interface CrackSpec {
 const CRACK: Record<BotKind, CrackSpec> = {
   // the top-right corner: the blade tears a chip out of the right edge on its way out
   bubble: { ref: { x: 64, y: -172 }, side: 'exit', L: 84, hand: 1 },
-  // the chin's right side: the blade bites in at the bottom-right corner
-  cube: { ref: { x: 48, y: -56 }, side: 'entry', L: 72, hand: -1 },
+  // the chin, under the screen: the blade bites in at its right edge and the
+  // bolt runs left along the chin (long enough to read as a bolt, not a mitten)
+  cube: { ref: { x: 48, y: -46 }, side: 'entry', L: 88, hand: -1 },
   // the upper-left shoulder: a chip torn out of the left edge (at about 8
   // o'clock... 190° on the rim) on the way out, its step jumping up, away from
   // the eye, so the badge sits on the shoulder about 15 px clear of the lid

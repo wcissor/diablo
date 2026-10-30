@@ -25,4 +25,5 @@ export const BOT_BOX = { x0: -120, x1: 120, y0: -250, y1: 0 };
 
 // Where Diablo's slash crosses each bot in the reel (direction of travel, for
 // aiming the damage). Angles in degrees, screen convention (0 = rightwards, 90 = down).
-export const SLASH_DIR: Record<BotKind, number> = { bubble: 18, orb: 152, cube: 225 };
+// (the cube's runs along its chin, under the screen: a diagonal across the screen read as a strike-through)
+export const SLASH_DIR: Record<BotKind, number> = { bubble: 18, orb: 152, cube: 190 };

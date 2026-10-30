@@ -32,13 +32,15 @@ const BotsLayer: React.FC<{ f: number; bots: T.BotView[]; bg: 'white' | 'maroon'
 // The lens: a magnified copy of the bots inside a white reticle.
 const Lens: React.FC<{ f: number; lens: T.LensView; bots: T.BotView[] }> = ({ f, lens, bots }) => (
   <g>
-    {lens.r > 1 ? <circle cx={lens.x + 6} cy={lens.y + 10} r={lens.r + 6} fill={C.night} opacity={0.35} /> : null}
-    <g clipPath="url(#lens)">
-      <rect x={lens.x - lens.r} y={lens.y - lens.r} width={2 * lens.r} height={2 * lens.r} fill={C.maroon} />
-      <g transform={`translate(${lens.x} ${lens.y}) scale(${lens.zoom}) translate(${-lens.x} ${-lens.y})`}>
-        <BotsLayer f={f} bots={bots} bg="maroon" />
+    {lens.r > 1 && lens.content ? <circle cx={lens.x + 6} cy={lens.y + 10} r={lens.r + 6} fill={C.night} opacity={0.35} /> : null}
+    {lens.content ? (
+      <g clipPath="url(#lens)">
+        <rect x={lens.x - lens.r} y={lens.y - lens.r} width={2 * lens.r} height={2 * lens.r} fill={C.maroon} />
+        <g transform={`translate(${lens.x} ${lens.y}) scale(${lens.zoom}) translate(${-lens.x} ${-lens.y})`}>
+          <BotsLayer f={f} bots={bots} bg="maroon" />
+        </g>
       </g>
-    </g>
+    ) : null}
     <g transform={`translate(${lens.x} ${lens.y}) scale(${lens.snap}) rotate(${lens.spin})`}>
       <circle r={lens.r} fill="none" stroke={C.white} strokeWidth={10} />
       {[0, 90, 180, 270].map((a) => (
