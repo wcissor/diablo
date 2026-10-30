@@ -107,9 +107,9 @@ const rise = (f: number) => clamp(settle(f, EVENTS.rise.from, 2.5, 0.62), -0.2, 
 const tailSweep = (f: number) => {
   const t = invLerp(EVENTS.tailSweep.from, EVENTS.tailSweep.to, f);
   const e = easeInOutCubic(t);
-  const pivot = { x: 560, y: 930 };
-  const R = 330;
-  const a0 = (-20 * Math.PI) / 180;
+  const pivot = { x: 540, y: 930 };
+  const R = 300;
+  const a0 = (-55 * Math.PI) / 180;
   const a1 = (-205 * Math.PI) / 180;
   const a = lerp(a0, a1, e);
   const over = (settle(f, EVENTS.tailSweep.to - 3, 2.2, 0.45) - 1) * (t >= 1 ? 1 : 0);
@@ -201,7 +201,7 @@ const strikeHand = (f: number, side: 'left' | 'right', ember: number): HandProps
   if (f < w1) {
     // draw back 40 px (up and out) with an ease-in: anticipation
     const k = easeOutCubic(invLerp(w0, w1, f));
-    return { ...hover, x: hover.x + out * 12 * k, y: hover.y - 40 * k, curl: lerp(0.15, 0.6, k), spread: lerp(1, 0.7, k), tremble: 0, ember };
+    return { ...hover, x: hover.x + out * 12 * k, y: hover.y - 40 * k, curl: lerp(hover.curl ?? 0.1, 0.6, k), spread: lerp(hover.spread ?? 0.8, 0.7, k), tremble: 0, ember };
   }
   const kind: BotKind = side === 'left' ? 'bubble' : 'orb';
   const at = shellShift(kind, centroid(clawTips(hit)), strikeBotPose(Math.max(f, EVENTS.strike), kind), f);
@@ -222,7 +222,7 @@ const strikeHand = (f: number, side: 'left' | 'right', ember: number): HandProps
   // pressed in, a tiny rebound, then lift clear of the cracks
   const rebound = Math.sin(clamp(s / 6) * Math.PI) * -6;
   const lift = easeInOutCubic(invLerp(196, 214, f)) * 70;
-  const away = easeInOutCubic(invLerp(196, 214, f)) * 30 * out;
+  const away = easeInOutCubic(invLerp(196, 214, f)) * -12 * out;
   return { ...hit, x: hit.x + at.x + away, y: hit.y + at.y + rebound - lift, ember, tremble: f > 214 ? 1.5 : 0 };
 };
 
@@ -340,8 +340,8 @@ const traceHand = (f: number): HandProps | undefined => {
   const away = easeInOutCubic(invLerp(EVENTS.trace.to + 2, EVENTS.trace.to + 22, f));
   return {
     ...base,
-    x: p.x - tips[lead].x - away * 60,
-    y: p.y - tips[lead].y - away * 380,
+    x: p.x - tips[lead].x - away * 520,
+    y: p.y - tips[lead].y - away * 90,
     rot: base.rot + away * 10,
     warm: clamp(1 - emberLevel(f)) * 0.6,
     ember: emberLevel(f),
@@ -369,14 +369,14 @@ export const shot4 = (f: number): SceneState => {
 const sealedState = (f: number, k: BotKind): CrackState => ({ ...strikeState(SHOTS[3].to, k), warm: 0, weak: 0, pulseFrame: f });
 
 const flickHand = (f: number): HandProps => {
-  const hover = { side: 'right' as const, x: 880, y: 560, rot: -30, spread: 0.6, curl: 0.3 };
+  const hover = { side: 'right' as const, x: 800, y: 700, rot: 24, spread: 0.5, curl: 0.3 };
   const h = hairlines();
   // flick 1 (orb): sweep the lead tip across the crack in 6 frames
   const k1 = invLerp(EVENTS.crack1.flick - 5, EVENTS.crack1.flick + EVENTS.crack1.sealFrames + 6, f);
   const k2 = invLerp(EVENTS.crack2.at - 3, EVENTS.crack2.at + EVENTS.crack2.sealFrames + 4, f);
-  const visit = (k: number, target: Pt) => {
+  const visit = (k: number, target: Pt, rot: number) => {
     const t = Math.sin(clamp(k) * Math.PI); // out and back
-    const base = { ...hover, rot: -18, curl: 0.5, spread: 0.2, x: 0, y: 0 };
+    const base = { ...hover, rot, curl: 0.5, spread: 0.2, x: 0, y: 0 };
     const tips = clawTips(base);
     const lead = tips.reduce((a, p, i) => (p.y > tips[a].y ? i : a), 0);
     const at = { x: target.x - tips[lead].x, y: target.y - tips[lead].y };
@@ -384,8 +384,9 @@ const flickHand = (f: number): HandProps => {
   };
   const tremble = 1.2;
   const onShell = (k: BotKind, p: Pt) => botPoint(k, p, learnBotPose(f, k), f);
-  if (k1 > 0 && k1 < 1) return { ...hover, ...visit(k1, onShell('orb', h.orb.cracks[0].points[0])), tremble, warm: 0.5 };
-  if (k2 > 0 && k2 < 1) return { ...hover, ...visit(k2, onShell('cube', h.cube.cracks[0].points[0])), tremble, warm: 0.5 };
+  // claws angled out onto the orb (palm clear of the rail), in onto the cube (palm clear of his eyes)
+  if (k1 > 0 && k1 < 1) return { ...hover, ...visit(k1, onShell('orb', h.orb.cracks[0].points[0]), -10), tremble, warm: 0.5 };
+  if (k2 > 0 && k2 < 1) return { ...hover, ...visit(k2, onShell('cube', h.cube.cracks[0].points[0]), 22), tremble, warm: 0.5 };
   return { ...hover, tremble, warm: 0.5 };
 };
 
@@ -452,7 +453,7 @@ export const shot5 = (f: number): SceneState => {
 
 /* ─────────────────────────── Shot 6 — Evolves ─────────────────────────── */
 
-export const RING = { cx: 540, cy: 1190, rx: 372, ry: 90 };
+export const RING = { cx: 540, cy: 1190, rx: 364, ry: 90 };
 
 export const shot6 = (f: number): SceneState => {
   const up = settle(f, EVENTS.riseProud, 2.0, 0.5);

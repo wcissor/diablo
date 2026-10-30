@@ -33,8 +33,8 @@ export const STRIKE_LEFT: HandPose = aimHand({ side: 'left', x: 270, y: 700, rot
 export const STRIKE_RIGHT: HandPose = aimHand({ side: 'right', x: 810, y: 700, rot: -20, spread: 0.55, curl: 0.85 }, IMPACT_TARGET.orb);
 
 // Hover poses (shot 2 end, shot 3 start): out to the sides and higher.
-export const HOVER_LEFT: HandPose = { side: 'left', x: STRIKE_LEFT.x - 20, y: STRIKE_LEFT.y - 190, rot: 6, spread: 1, curl: 0.1 };
-export const HOVER_RIGHT: HandPose = { side: 'right', x: STRIKE_RIGHT.x + 20, y: STRIKE_RIGHT.y - 190, rot: -6, spread: 1, curl: 0.1 };
+export const HOVER_LEFT: HandPose = { side: 'left', x: STRIKE_LEFT.x - 5, y: STRIKE_LEFT.y - 190, rot: 6, spread: 0.8, curl: 0.1 };
+export const HOVER_RIGHT: HandPose = { side: 'right', x: STRIKE_RIGHT.x + 5, y: STRIKE_RIGHT.y - 190, rot: -6, spread: 0.8, curl: 0.1 };
 
 // The tail rests behind Diablo's left side, then its point taps the cube.
 export const TAIL_REST: TailCrescentPose = { x: 250, y: 880, rot: 10, scale: 1.0 };
@@ -62,9 +62,9 @@ export const strikeCracks = memo(
 );
 
 export const hairlines = memo(() => ({
-  // on free porcelain: the orb's lower right, the band under the cube's screen
-  orb: makeHairline('orb', { x: BOTS.orb.cx + 44, y: 1112 }, 'hairline-orb', 50),
-  cube: makeHairline('cube', { x: BOTS.cube.cx - 58, y: 1154 }, 'hairline-cube', 34),
+  // on free porcelain, below the faces: the orb's lower left, the band under the cube's screen (right end)
+  orb: makeHairline('orb', { x: BOTS.orb.cx - 30, y: 1124 }, 'hairline-orb', 50),
+  cube: makeHairline('cube', { x: BOTS.cube.cx + 66, y: 1154 }, 'hairline-cube', 34),
 }));
 
 export const pointOnCrack = (d: string, u: number): Pt => {

@@ -160,7 +160,7 @@ def make_audio(root: Path) -> None:
             continue
         i0 = int(b / FPS * SR)
         m = min(SR, n - i0)
-        score[i0: i0 + m] += thump(np.arange(m) / SR, amp=0.15)
+        score[i0: i0 + m] += thump(np.arange(m) / SR, amp=0.08)
     score[int(132 / FPS * SR): int(138 / FPS * SR)] = 0.0
     sfx = np.zeros(n)
     i0 = int(138 / FPS * SR)
