@@ -41,7 +41,7 @@ export const SHOTS: Shot[] = [
   shot(2, 'Diablo', 105, 164, [], [], 164),
   shot(3, 'Finds the cracks', 165, 269, ['Diablo finds', 'the cracks.'], [180, 195], 258),
   shot(4, 'Fixes them', 270, 374, ['Then', 'fixes them.'], [270, 282], 368),
-  shot(5, 'Evolves', 375, 479, ['AI that', 'evolves AI.'], [390, 405], 462),
+  shot(5, 'Evolves', 375, 479, ['AI that', 'evolves AI.'], [386, 405], 462),
   shot(6, 'End card', 480, 599, [], [], 599),
 ];
 
@@ -73,7 +73,7 @@ export const EVENTS = {
   botsBack: 161,
   hits: { bubble: 180, orb: 188, cube: 195 }, // three slashes, one per bot
   lens: { from: 208, bubble: 208, cube: 223, orb: 238, to: 258 }, // a lens finds each chip
-  lensFix: { from: 281, bubble: 281, orb: 298, cube: 313, to: 336 }, // and comes back to watch each one sealed
+  lensFix: { from: 281, bubble: 281, orb: 301, cube: 316, to: 336 }, // and comes back to watch each one sealed
   swoosh: { from: 258, to: 270 },
   seals: { bubble: 285, orb: 300, cube: 315 }, // each bot's seams draw in white over a beat
   sealFrames: 15,
@@ -147,10 +147,10 @@ export const SFX = {
   zoom: EVENTS.eyeZoom.from,
   slashes: Object.values(EVENTS.hits).map((h) => h - 4),
   hits: Object.values(EVENTS.hits),
-  chipTicks: [EVENTS.hits.cube + 5], // the cube's chips land on the floor (the others vanish mid-air)
-  chipClicks: Object.values(EVENTS.seals).map((s) => s + 2), // each chip snaps back before the seam pours
-  locks: [EVENTS.lens.bubble, EVENTS.lens.cube, EVENTS.lens.orb],
-  fixLocks: [EVENTS.lensFix.bubble, EVENTS.lensFix.orb, EVENTS.lensFix.cube],
+  chipTicks: [EVENTS.hits.cube + 4], // the cube's chips land on the floor (the others vanish mid-air)
+  chipClicks: Object.values(EVENTS.seals).map((s) => s + 3), // each chip snaps back before the seam pours
+  locks: [EVENTS.lens.bubble + 1, EVENTS.lens.cube, EVENTS.lens.orb], // the first as the lens appears
+  fixLocks: [EVENTS.lensFix.bubble + 1, EVENTS.lensFix.orb, EVENTS.lensFix.cube],
   swoosh: EVENTS.swoosh.from,
   sealZips: Object.values(EVENTS.seals),
   sealDings: Object.values(EVENTS.seals).map((s) => s + EVENTS.sealFrames),

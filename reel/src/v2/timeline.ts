@@ -177,7 +177,8 @@ export const dotsAt = (f: number): DotView[] => {
 // travel. Each end stays inside the safe area and short of the neighbouring
 // bots (ears and mitts included), so a swipe never spears the wrong bot.
 const SLASH_BOW = 20; // px the arc's control point sits off the line
-const SLASH_X: Record<BotKind, [number, number]> = { bubble: [SAFE.x0 + 6, 400], cube: [392, 672], orb: [680, SAFE.x1 - 6] };
+// (the blade's round head reaches half its width past these)
+const SLASH_X: Record<BotKind, [number, number]> = { bubble: [SAFE.x0 + 6, 385], cube: [392, 672], orb: [695, SAFE.x1 - 6] };
 export interface Arc {
   p0: Pt;
   c: Pt;
@@ -277,16 +278,18 @@ export const lensAt = (f: number): LensView | null => {
   const { stops } = tour;
   let c = lensOn(stops[0][1]);
   let last = 0;
+  let hopK = 0; // it shrinks as it jumps, so no half-magnified blobs show in transit
   for (let j = 1; j < stops.length; j++) {
     const e = ramp(f, stops[j][0] - 3, stops[j][0], easeInOutCubic);
     const n = lensOn(stops[j][1]);
     c = { x: lerp(c.x, n.x, e), y: lerp(c.y, n.y, e) };
+    hopK = Math.max(hopK, Math.sin(Math.PI * e));
     if (f >= stops[j][0]) last = j;
   }
   const lockAt = stops[last][0];
   return {
     ...c,
-    r: LENS_R * spring(f - tour.from) * (1 - ramp(f, tour.to - 7, tour.to - 1, easeInCubic)),
+    r: LENS_R * spring(f - tour.from) * (1 - ramp(f, tour.to - 7, tour.to - 1, easeInCubic)) * (1 - 0.7 * hopK),
     zoom: 2.1,
     snap: 1 + 0.12 * (1 - clamp(spring(f - lockAt, 1.6, 0.9))),
     spin: 90 * last + 90 * ramp(f, lockAt, lockAt + 6, easeOutCubic),
@@ -311,6 +314,7 @@ export interface SparkView {
   t0: number;
   size: number;
   color: string;
+  bot?: BotKind; // rides along with this bot's hop
 }
 
 // Rings burst a beat after each pop, once the bot has grown into them.
@@ -320,7 +324,7 @@ export const RINGS: RingView[] = [
   { ...DOT, t0: EVENTS.dot, r1: 90, color: C.maroon, width: 10, n: 1 },
   ...HOOK_RINGS,
   { ...LAND, t0: EVENTS.drop.land, r0: 120, r1: 620, color: C.white, width: 28, n: 3 },
-  ...KINDS.map((k) => ({ ...botCentre(k), t0: sealEnd(k), r1: 200, color: C.white, width: 14, n: 2 })),
+  ...KINDS.map((k) => ({ ...botCentre(k), t0: sealEnd(k), r1: 200, color: C.white, width: 10, n: 1 })),
   ...KINDS.map((k, i) => ({ ...botCentre(k), t0: EVENTS.botsUp + 4 * i + 2, r1: 190, color: C.white, width: 14, n: 2 })),
 ];
 export const SPARKS: SparkView[] = [
@@ -329,14 +333,14 @@ export const SPARKS: SparkView[] = [
       const c = botCentre(k);
       // above each head, alternating sides, so no two glints pair up into "eyes" in a gap
       const side = (i + j) % 2 ? 1 : -1;
-      return { x: c.x + side * 58, y: c.y - 150 - 10 * ((i + j) % 2), t0: b + 2 + 2 * i, size: 26, color: C.maroon };
+      return { x: c.x + side * 58, y: c.y - 175 - 10 * ((i + j) % 2), t0: b + 2 + 2 * i, size: 26, color: C.maroon };
     }),
   ),
   ...KINDS.flatMap((k) => {
     const c = botCentre(k);
     return [
-      { ...damageScreen(k), t0: sealEnd(k) - 1, size: 56, color: C.white }, // a big flash on the new badge
-      { x: c.x + 104, y: c.y - 78, t0: sealEnd(k) + 3, size: 22, color: C.white },
+      { ...damageScreen(k), t0: sealEnd(k) - 1, size: 56, color: C.white, bot: k }, // a big flash on the new badge
+      { x: c.x + 104, y: c.y - 78, t0: sealEnd(k) + 3, size: 22, color: C.white, bot: k },
     ];
   }),
 ];

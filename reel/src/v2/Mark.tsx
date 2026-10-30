@@ -51,7 +51,7 @@ export const FlatMark: React.FC<{ m: MarkView; id: string }> = ({ m, id }) => {
       {m.shine !== undefined ? (
         // a band of light sweeping across the head and crescent
         <g clipPath={`url(#${id}-shape)`}>
-          <rect x={MARK_BOX.x - 260 + (MARK_BOX.w + 400) * m.shine} y={MARK_BOX.y - 300} width={110} height={MARK_BOX.h + 600} fill="#fff" opacity={0.42} transform={`rotate(24 ${MC.x} ${MC.y})`} />
+          <rect x={MARK_BOX.x - 260 + (MARK_BOX.w + 400) * m.shine} y={MARK_BOX.y - 300} width={78} height={MARK_BOX.h + 600} fill="#fff" opacity={0.66} transform={`rotate(24 ${MC.x} ${MC.y})`} />
         </g>
       ) : null}
     </g>

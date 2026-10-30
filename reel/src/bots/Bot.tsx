@@ -60,7 +60,7 @@ const CRACK_HW = 10; // the crack's half-width at the notch's apex
 const SNAP = 0.15; // seal: the chip is back in its notch (it flies in over the frames before)
 const POUR0 = 0.15; // seal: the white starts to pour
 const POUR1 = 0.96; // seal: it reaches the tip
-const RIM = 3; // the inlay's ink rim (about 1 px on a phone)
+const RIM = 4.5; // the badge's maroon rim (Diablo's colour around the white fix; about 1.5 px on a phone)
 const GLINT = 15; // frames a glint takes, pad to pad
 
 // Near-linear with soft ends, so the weld bead visibly travels down the bolt.
@@ -217,7 +217,8 @@ export const ConceptBotImpl: ConceptBot = ({ kind, frame, bg, mood = 'happy', lo
   const pulseAt = glintF >= 0 ? lerp(D.mouth + 7, L - 1, ramp(glintF, 2, 11.5, easeInOutCubic)) : 0;
   const pulseAmp = glintF >= 0 ? 3.6 * keys(glintF, [[1.5, 0], [3, 1], [10.5, 1], [12, 0]]) : 0;
   const ihw = (s: number) =>
-    (hw(s) + 3) * clamp((front - s) / 6 + 0.15) * swell + (pulseAmp > 0 ? pulseAmp * Math.exp(-(((s - pulseAt) / 9) ** 2)) : 0);
+    // capped near the notch's mouth so the white reads as a bolt, not a patch flooding the edge
+    (Math.min(hw(s), CRACK_HW * 1.15) + 3) * clamp((front - s) / 6 + 0.15) * swell + (pulseAmp > 0 ? pulseAmp * Math.exp(-(((s - pulseAt) / 9) ** 2)) : 0);
   const outer = (s: number) => Math.min(hw(s), Math.max(0, (reveal - s) * 0.9));
   const crackFrom = Math.max(0, front);
   const crackD = hit && reveal > crackFrom ? ribbon(D.line, crackFrom, reveal, outer) : '';
@@ -295,7 +296,7 @@ export const ConceptBotImpl: ConceptBot = ({ kind, frame, bg, mood = 'happy', lo
               ) : null}
               {/* the white inlay, raised: a shade drop, an ink rim, white */}
               <Rib transform="translate(2.2 2.8)" d={inlayRimD} fill={pal.shade} />
-              <Rib d={inlayRimD} fill={pal.ink} />
+              <Rib d={inlayRimD} fill={C.maroon} />
               <Rib d={inlayD} fill={pal.light} />
             </g>
           ) : null}
@@ -329,7 +330,7 @@ export const ConceptBotImpl: ConceptBot = ({ kind, frame, bg, mood = 'happy', lo
         ) : null}
 
         {/* the weld bead leads the white down the bolt */}
-        {pouring && front > -1 ? <WeldHead at={head} pulse={Math.sin(frame * 1.9)} light={pal.light} ink={pal.ink} /> : null}
+        {pouring && front > -1 ? <WeldHead at={head} pulse={Math.sin(frame * 1.9)} light={pal.light} /> : null}
 
         {/* the click as the chip lands */}
         {sealing && sl >= SNAP && sl < SNAP + 0.25 ? (
@@ -346,7 +347,7 @@ export const ConceptBotImpl: ConceptBot = ({ kind, frame, bg, mood = 'happy', lo
       </g>
 
       {/* the slash: a bar of light along its line (the reel's ribbon's arc), spilling out of both ends */}
-      {slash ? <SlashLight sp={slash} t={t} color={pal.fx} /> : null}
+      {slash ? <SlashLight sp={slash} t={t} color={pal.fx} exitDrops={kind === 'cube'} /> : null}
     </g>
   );
 };
@@ -376,7 +377,9 @@ const arcOf = (kind: BotKind) => {
 // just after it leaves (arc parameters), where the impact is, and where it
 // breaks in and out of the outline. `toBody` maps plain bot space into the
 // posed body's own space.
-const SPILL = 26; // px the light runs past the outline at each end (short of the neighbours)
+const SPILL = 26; // px the light runs past the outline where the blade comes in
+// ...and where it leaves: the bubble's and the orb's slashes leave toward the cube, so theirs stops short
+const SPILL_OUT: Record<BotKind, number> = { bubble: 6, cube: 26, orb: 6 };
 const slashSpan = (kind: BotKind, toBody: (p: Pt) => Pt) => {
   const D = DAMAGE[kind];
   const arc = arcOf(kind);
@@ -396,8 +399,14 @@ const slashSpan = (kind: BotKind, toBody: (p: Pt) => Pt) => {
     kin = proj(D.chord.a);
     kout = proj(D.chord.b);
   }
-  const dk = SPILL / arc.len;
-  return { arc, k0: clamp(proj(pointAt(D.line, D.mouth)), kin, kout), ka: Math.max(0, kin - dk), kb: Math.min(1, kout + dk), kin, kout };
+  return {
+    arc,
+    k0: clamp(proj(pointAt(D.line, D.mouth)), kin, kout),
+    ka: Math.max(0, kin - SPILL / arc.len),
+    kb: Math.min(1, kout + SPILL_OUT[kind] / arc.len),
+    kin,
+    kout,
+  };
 };
 type SlashSpan = ReturnType<typeof slashSpan>;
 
@@ -434,7 +443,7 @@ const SlashCut: React.FC<{ sp: SlashSpan; t: number; fill: string }> = ({ sp, t,
 // on white) on the reel ribbon's own arc, widest at the impact point, thinning
 // out while the crack grows out of the line. Where it breaks out through the
 // outline, a round flare; then light spills off both ends as a few drops.
-const SlashLight: React.FC<{ sp: SlashSpan; t: number; color: string }> = ({ sp, t, color }) => {
+const SlashLight: React.FC<{ sp: SlashSpan; t: number; color: string; exitDrops: boolean }> = ({ sp, t, color, exitDrops }) => {
   const W = slashW(t);
   const drops = ramp(t, 0.7, 3.6);
   const ends: [Pt, Pt][] = [
@@ -446,7 +455,7 @@ const SlashLight: React.FC<{ sp: SlashSpan; t: number; color: string }> = ({ sp,
       {W > 0.3 ? <path d={sliverD(sp, W)} fill={color} /> : null}
       {t < 2 ? ends.map(([e], i) => <Dot key={`f${i}`} at={e} r={keys(t, [[0, 6.5], [1, 4.5], [2, 0]])} fill={color} />) : null}
       {drops > 0 && drops < 1
-        ? ends.map(([e, v0], i) =>
+        ? ends.slice(0, exitDrops ? 2 : 1).map(([e, v0], i) =>
             [-14, 12].map((da, j) => {
               const v = rotate(v0, da);
               const q = add(e, v, 5 + (j ? 22 : 16) * easeOutCubic(drops));

@@ -32,7 +32,7 @@ const BotsLayer: React.FC<{ f: number; bots: T.BotView[]; bg: 'white' | 'maroon'
 // The lens: a magnified copy of the bots inside a white reticle.
 const Lens: React.FC<{ f: number; lens: T.LensView; bots: T.BotView[] }> = ({ f, lens, bots }) => (
   <g>
-    <circle cx={lens.x + 6} cy={lens.y + 10} r={lens.r + 6} fill={C.night} opacity={0.35} />
+    {lens.r > 1 ? <circle cx={lens.x + 6} cy={lens.y + 10} r={lens.r + 6} fill={C.night} opacity={0.35} /> : null}
     <g clipPath="url(#lens)">
       <rect x={lens.x - lens.r} y={lens.y - lens.r} width={2 * lens.r} height={2 * lens.r} fill={C.maroon} />
       <g transform={`translate(${lens.x} ${lens.y}) scale(${lens.zoom}) translate(${-lens.x} ${-lens.y})`}>
@@ -92,9 +92,11 @@ export const Reel: React.FC<{ f: number; hideWords?: boolean }> = ({ f, hideWord
             </g>
           </g>
           {lens ? <Lens f={f} lens={lens} bots={bots} /> : null}
-          {T.SPARKS.map((s, i) => (
-            <Sparkle key={i} f={f} s={s} />
-          ))}
+          {T.SPARKS.map((s, i) => {
+            // a glint that belongs to a bot rides along with its hop
+            const b = s.bot ? bots.find((v) => v.kind === s.bot) : undefined;
+            return <Sparkle key={i} f={f} s={b ? { ...s, y: s.y - b.lift * b.scale } : s} />;
+          })}
           {wipeIn ? <circle cx={wipeIn.x} cy={wipeIn.y} r={wipeIn.r} fill={C.maroon} /> : null}
           {mark ? <FlatMark m={mark} id="mark" /> : null}
           {eyeFill > 0 ? <rect x={-40} y={-40} width={W + 80} height={H + 80} fill={C.maroon} opacity={eyeFill} /> : null}

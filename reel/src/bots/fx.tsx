@@ -136,8 +136,11 @@ export const Pixels: React.FC<{ from: Pt[]; out: Pt; t: number; seed: number; co
 
 /* ───────── the fix ───────── */
 
-// The weld head that leads the white down the bolt: one bright round bead
-// (white, with a thin ink rim so it reads on porcelain), pulsing a little.
-export const WeldHead: React.FC<{ at: Pt; pulse: number; light: string; ink: string }> = ({ at, pulse, light, ink }) => (
-  <circle cx={fx(at.x)} cy={fx(at.y)} r={fx(7.8 + 1.1 * pulse)} fill={light} stroke={ink} strokeWidth={5} paintOrder="stroke" />
+// The weld head that leads the white down the bolt: one bright bead in a soft
+// halo, pulsing a little (no rim: a rimmed dot reads as an eye).
+export const WeldHead: React.FC<{ at: Pt; pulse: number; light: string }> = ({ at, pulse, light }) => (
+  <g>
+    <circle cx={fx(at.x)} cy={fx(at.y)} r={fx(12.5 + 1.6 * pulse)} fill={light} opacity={0.35} />
+    <circle cx={fx(at.x)} cy={fx(at.y)} r={fx(6.4 + 0.8 * pulse)} fill={light} />
+  </g>
 );

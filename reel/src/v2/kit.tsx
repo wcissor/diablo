@@ -21,16 +21,18 @@ export const Rings: React.FC<{ f: number; ring: RingView }> = ({ f, ring }) => {
   );
 };
 
-// A round glint: a dot that pops, then opens into a thin ring and fades (no
-// four-point stars: that glyph belongs to another AI brand).
+// A round glint: a dot pops and shrinks away, then a thin ring opens where it
+// was (never both at once: a dot in a ring reads as an eye). No four-point
+// stars: that glyph belongs to another AI brand.
 export const Sparkle: React.FC<{ f: number; s: SparkView }> = ({ f, s }) => {
   const p = (f - s.t0) / 14;
   if (p <= 0 || p >= 1) return null;
-  const dot = s.size * 0.42 * (p < 0.3 ? easeOutBack(p / 0.3) : 1 - easeInCubic((p - 0.3) / 0.7));
+  const dot = s.size * 0.42 * (p < 0.25 ? easeOutBack(p / 0.25) : 1 - easeInCubic(Math.min(1, (p - 0.25) / 0.25)));
+  const q = (p - 0.45) / 0.55;
   return (
     <g>
-      <circle cx={s.x} cy={s.y} r={Math.max(0, dot)} fill={s.color} />
-      <circle cx={s.x} cy={s.y} r={s.size * (0.4 + 0.9 * easeOutCubic(p))} fill="none" stroke={s.color} strokeWidth={4 * (1 - p)} />
+      {dot > 0.3 ? <circle cx={s.x} cy={s.y} r={dot} fill={s.color} /> : null}
+      {q > 0 ? <circle cx={s.x} cy={s.y} r={s.size * (0.35 + 0.85 * easeOutCubic(q))} fill="none" stroke={s.color} strokeWidth={4.5 * (1 - q)} /> : null}
     </g>
   );
 };
@@ -76,7 +78,7 @@ export const Blade: React.FC<{ arc: Arc; a: number; b: number; width: number; co
   }
   const n = (q: Pt) => `${q.x.toFixed(1)} ${q.y.toFixed(1)}`;
   const r = (width / 2).toFixed(1);
-  return <path d={`M${left.map(n).join('L')}A${r} ${r} 0 0 1 ${n(right[N])}L${right.reverse().map(n).join('L')}Z`} fill={color} />;
+  return <path d={`M${left.map(n).join('L')}A${r} ${r} 0 0 0 ${n(right[N])}L${right.reverse().map(n).join('L')}Z`} fill={color} />;
 };
 
 // The whole frame minus a circle (fill it with fillRule evenodd).

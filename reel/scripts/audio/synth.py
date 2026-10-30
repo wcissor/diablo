@@ -347,7 +347,7 @@ def build_sfx():
     for f, pan in zip(X['hits'], [-0.45, 0.45, 0.1]):
         add(sfx, hit(), f, 0.9, pan)
         add(send, hit(), f, 0.2, pan)
-    for f, pan in zip(X['chipTicks'], [-0.5, -0.4, 0.5, 0.4, 0.15, 0.05]):
+    for f, pan in zip(X['chipTicks'], [0.15]):  # the cube's chips, landing centre-right
         add(sfx, pop(2200, 1500, 0.03), f, 0.18, pan)
     for f, pan in zip(X['chipClicks'], [-0.45, 0.45, 0.1]):
         add(sfx, click(), f, 0.35, pan)
