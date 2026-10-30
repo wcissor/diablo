@@ -153,21 +153,21 @@ def thump(t, f0=60.0, decay=0.15, amp=0.3):
 def make_audio(root: Path) -> None:
     n = NF * SR // FPS
     t = np.arange(n) / SR
-    score = 0.02 * np.sin(2 * np.pi * 55 * t)
+    score = 0.05 * np.sin(2 * np.pi * 110 * t) + 0.03 * np.sin(2 * np.pi * 55 * t)  # the drone
     beats = [v for v in BEATS.values() if isinstance(v, int)] + [b for v in BEATS.values() if isinstance(v, list) for b in v]
     for b in sorted(set(beats)):
         if b == 138:
             continue
         i0 = int(b / FPS * SR)
         m = min(SR, n - i0)
-        score[i0: i0 + m] += thump(np.arange(m) / SR, amp=0.4 if b == 540 else 0.25)
+        score[i0: i0 + m] += thump(np.arange(m) / SR, amp=0.15)
     score[int(132 / FPS * SR): int(138 / FPS * SR)] = 0.0
     sfx = np.zeros(n)
     i0 = int(138 / FPS * SR)
-    m = int(0.3 * SR)
+    m = int(0.4 * SR)
     rng = np.random.default_rng(1)
-    sfx[i0: i0 + m] += rng.normal(0, 0.25, m) * np.exp(-np.arange(m) / (0.08 * SR))
-    sfx[i0: i0 + SR] += thump(np.arange(SR) / SR, f0=50, decay=0.25, amp=0.8)
+    sfx[i0: i0 + m] += np.clip(rng.normal(0, 0.3, m), -0.6, 0.6) * np.exp(-np.arange(m) / (0.2 * SR))  # dense burst
+    sfx[i0: i0 + SR] += thump(np.arange(SR) / SR, f0=50, decay=0.25, amp=0.3)
     voice = np.zeros(n)
     for ln in VOICE_LINES:
         j0 = int(ln["start"] / FPS * SR)

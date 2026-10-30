@@ -54,15 +54,17 @@ const memo = <T,>(f: () => T) => {
 
 export const strikeCracks = memo(
   (): Record<BotKind, CrackSet> => ({
-    bubble: makeCracks('bubble', clawTips(STRIKE_LEFT), 'strike-bubble'),
-    cube: makeCracks('cube', [CUBE_TAP], 'strike-cube'),
-    orb: makeCracks('orb', clawTips(STRIKE_RIGHT), 'strike-orb'),
+    // 5 each: the traced crack plus 14 more close on the 13 chimes after it
+    bubble: makeCracks('bubble', clawTips(STRIKE_LEFT), 'strike-bubble', 5),
+    cube: makeCracks('cube', [CUBE_TAP], 'strike-cube', 5),
+    orb: makeCracks('orb', clawTips(STRIKE_RIGHT), 'strike-orb', 5),
   }),
 );
 
 export const hairlines = memo(() => ({
-  orb: makeHairline('orb', { x: BOTS.orb.cx - 38, y: 1042 }, 'hairline-orb', 46),
-  cube: makeHairline('cube', { x: BOTS.cube.cx + 46, y: 1098 }, 'hairline-cube', 30),
+  // on free porcelain: the orb's lower right, the band under the cube's screen
+  orb: makeHairline('orb', { x: BOTS.orb.cx + 44, y: 1112 }, 'hairline-orb', 50),
+  cube: makeHairline('cube', { x: BOTS.cube.cx - 58, y: 1154 }, 'hairline-cube', 34),
 }));
 
 export const pointOnCrack = (d: string, u: number): Pt => {

@@ -38,6 +38,7 @@ import argparse
 import csv
 import datetime as _dt
 import difflib
+import functools
 import io
 import json
 import math
@@ -530,12 +531,15 @@ def spectral_flux_onsets(x: np.ndarray, sr: int = 48000, n_fft: int = 1024, hop:
     flux /= max(1e-9, float(np.percentile(flux, 99.5)))
     rms_db = 10 * np.log10(np.maximum((frames**2).mean(axis=1), 1e-14))
     w, a, wait, delta = 3, 24, 10, 0.08
+    half_s = sr // (2 * hop)
     onsets, last = [], -wait
     for n in range(1, nfr):
         lo, hi = max(0, n - w), min(nfr, n + w + 1)
         if flux[n] < flux[lo:hi].max() or flux[n] <= 0:
             continue
         if flux[n] < flux[max(0, n - a): n + a + 1].mean() + delta:
+            continue
+        if flux[n] < 0.3 * flux[max(0, n - half_s): n + half_s + 1].max():  # ripple in a bigger hit's tail
             continue
         if rms_db[n: n + 8].max() < -60:
             continue
@@ -561,6 +565,7 @@ def spectral_flux_onsets(x: np.ndarray, sr: int = 48000, n_fft: int = 1024, hop:
 # ─────────────────────────────────── drawing ───────────────────────────────────
 
 
+@functools.lru_cache(maxsize=None)
 def font(size: int):
     for name in ("DejaVuSans.ttf", "LiberationSans-Regular.ttf"):
         try:
@@ -802,6 +807,8 @@ def text_and_clearance(rgb: np.ndarray, band_y1: int = 700) -> dict:
     nonbg = delta_e_map(band, BG_TREE) > NONBG_DE
     core = delta_e_map(band, CREAM_TREE) <= 20
     core[TEXT_BAND_Y1 - y0:] = False
+    core[:, :WORDS_OCR_BOX.x0] = False  # claws or rims out at the sides are not words
+    core[:, WORDS_OCR_BOX.x1:] = False
     out: dict = {"text_px": int(core.sum())}
     if core.sum() < 30:
         return out
@@ -885,7 +892,8 @@ def g3_safe(ctx: Ctx, fr: Frames) -> Result:
                     bad.append(f"f{f}: words bbox {tc['bbox'].s()} outside words zone")
                 if tc.get("clearance", 999) < WORDS_CLEAR:
                     bad.append(f"f{f}: words only {tc['clearance']:.0f} px from a character")
-        if ctx.shot_at(f) and ctx.shot_at(f)["id"] == 7 or (not ctx.shots() and f >= 549):
+        shot = ctx.shot_at(f)
+        if (shot["id"] == 7) if shot else f >= 549:
             eb = end_card_text_box(rgb)
             r["end_card_text_bbox"] = eb
             if eb is not None and not SAFE.contains(eb):
@@ -908,6 +916,9 @@ def g3_safe(ctx: Ctx, fr: Frames) -> Result:
     text = (f"words bbox (union of {len(boxes)} stills) {union.s() if union else 'n/a'} vs zone {WORDS_ZONE.s()}; "
             f"min clearance to a character {fnum(min(clear) if clear else None, 0)} px (≥ {WORDS_CLEAR}); "
             f"right-rail action px (y 800–1248) {rail}")
+    for f in per:
+        if per[f].get("end_card_text_bbox"):
+            text += f"; end-card text f{f} {per[f]['end_card_text_bbox'].s()} (core {SAFE.s()})"
     if bad:
         text += f" · problems: {'; '.join(bad[:6])}" + (" …" if len(bad) > 6 else "")
     text += f" · {manual_text(man)}"
@@ -980,7 +991,11 @@ def glyph_metrics(rgb: np.ndarray, box: Box) -> dict | None:
     if interior.sum() < 10:
         interior = glyph
     text_rgb = np.median(big[interior], axis=0)
-    bgmask = ~ndimage.binary_dilation(glyph, iterations=3)
+    # background: everything not within 3 px of a glyph (or of other text-bright pixels near the line)
+    bright_all = (yb > t) if lighter else (yb < t)
+    bgmask = ~ndimage.binary_dilation(glyph | bright_all, iterations=3)
+    if bgmask.sum() < 50:
+        bgmask = ~ndimage.binary_dilation(glyph, iterations=3)
     bg = big[bgmask]
     bg_med = np.median(bg, axis=0)
     lum = rel_lum(bg)
@@ -1112,7 +1127,7 @@ def g4_text(ctx: Ctx, fr: Frames) -> Result:
                    "contrast_p95": [{"line": c[1], "contrast": c[0]} for c in contrasts], "problems": problems}
     matched = sum(1 for p in per if p["match"])
     read = ", ".join("f%d “%s”" % (p["frame"], p["ocr"]) for p in per)
-    text = (f"OCR (tesseract psm 6, 2×) matched {matched}/{len(targets)} lines to config ({read}); "
+    text = (f"OCR (tesseract psm 6, psm 4 fallback, 2×) matched {matched}/{len(targets)} lines to config ({read}); "
             f"full-still OCR (psm 11): digits/% {len([s for s in stray if s['kind'] == 'digit'])} (conf ≥ {OCR_DIGIT_CONF}, "
             f"text-sized; {len(ignored)} low-conf/shape tokens ignored), stray text "
             f"{len([s for s in stray if s['kind'] == 'text'])}; "
@@ -1277,6 +1292,9 @@ def g8_motion(ctx: Ctx, fr: Frames) -> Result:
     extra = [s for s in spikes if all(abs(s - c) > 1 for c in cuts_cfg)]
     m["cut_spikes"] = spikes
     m["cuts"] = cut_info
+    m["luma_per_frame"] = [round(float(v), 5) for v in L]
+    m["frame_change_per_frame"] = [round(float(v), 5) for v in D]
+    m["cut_spike_score_per_frame"] = [round(float(v), 2) for v in score]
     cuts_ok = bool(cuts_cfg) and all(ci["detected"] is not None for ci in cut_info)
 
     # cut ↔ score onsets
@@ -1321,8 +1339,10 @@ def g8_motion(ctx: Ctx, fr: Frames) -> Result:
             + "[" + ", ".join(f"{ci['planned']}"
                               + (f"→{ci['detected']}" if ci["detected"] not in (None, ci["planned"]) else "")
                               + (" missed" if ci["detected"] is None else "")
-                              + (f" Δ{ci['nearest_event']['dist']:.1f}f {ci['nearest_event']['kind']}"
+                              + (f" {ci['nearest_event']['kind']} Δ{ci['nearest_event']['dist']:.1f}f"
                                  if "nearest_event" in ci else "")
+                              + (f" beat Δ{abs(ci['nearest_beat_config'] - (ci['detected'] or ci['planned']))}f"
+                                 if ci.get("nearest_beat_config") is not None else "")
                               for ci in cut_info) + "]"
             + f" vs {len(on['onsets_s'])} onsets in {ctx.rel(src)} (≤ {CUT_MAX_DIST} f) "
             + ("ok" if cuts_ok and onset_ok else "FAIL")

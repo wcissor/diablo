@@ -4,7 +4,8 @@
 import { EVENTS, SHOTS } from '../config';
 import type { BotKind } from '../geometry';
 import { BOTS, DIABLO_EYES_Y } from '../geometry';
-import type { BotProps, CrackState, HandProps, Pt } from '../cast/types';
+import type { BotPose, BotProps, CrackState, HandProps, Pt } from '../cast/types';
+import { botPoint } from '../cast/Bots';
 import {
   clamp,
   easeInCubic,
@@ -62,7 +63,8 @@ const gazeAt = (k: BotKind, p: Pt): Pt => {
 };
 
 const DIABLO_EYES: Pt = { x: 540, y: DIABLO_EYES_Y };
-const lean = { bubble: -1, cube: 0, orb: 1 } as const; // "away from Diablo"
+const lean = { bubble: -1, cube: 0, orb: 1 } as const; // outward: away from Diablo rising in the middle
+const inward = { bubble: 1, cube: 0, orb: -1 } as const; // away from the claw on their side (and safe at the tightest push)
 
 /* ─────────────────────────── Shot 1 — Looks fine ─────────────────────────── */
 
@@ -153,7 +155,7 @@ export const shot2 = (f: number): SceneState => {
         look: { x: g.x, y: g.y },
         fear: clamp(c),
         squash: 1 - 0.06 * c,
-        lean: lean[k] * 7 * c + (k === 'cube' ? 0 : 0),
+        lean: lerp(lean[k] * 5 * c, inward[k] * 4, ramp(f, EVENTS.clawsUp.from, EVENTS.clawsUp.to)),
       };
     }),
   };
@@ -168,7 +170,28 @@ const shake = (f: number) => {
   return { dx: a * Math.sin(f * 2.9 + 0.7), dy: a * Math.cos(f * 3.7) };
 };
 
-// Wind-up, slam, hold, lift.
+// The bots in shot 3: cowering, then frozen mid-flinch by the hit.
+const strikeBotPose = (f: number, k: BotKind): BotPose => {
+  const struck = f >= EVENTS.strike;
+  const s = sinceHit(f);
+  return {
+    idle: false,
+    freeze: struck,
+    look: struck ? { x: inward[k] * 0.3, y: -0.4 } : { x: 0, y: -1 },
+    fear: 1,
+    squash: struck ? 0.9 + 0.02 * clamp(s / 20) : 0.94,
+    lean: inward[k] * (struck ? 6 : 4),
+  };
+};
+
+// Where an impact point on a bot is drawn under its pose, as an offset.
+const shellShift = (k: BotKind, p: Pt, pose: BotPose, f: number): Pt => {
+  const q = botPoint(k, p, pose, f);
+  return { x: q.x - p.x, y: q.y - p.y };
+};
+const centroid = (ps: Pt[]): Pt => ps.reduce((a, p) => ({ x: a.x + p.x / ps.length, y: a.y + p.y / ps.length }), { x: 0, y: 0 });
+
+// Wind-up, slam, hold, lift. Pressed in, the claws ride the shell as it squashes.
 const strikeHand = (f: number, side: 'left' | 'right', ember: number): HandProps => {
   const hover = side === 'left' ? HOVER_LEFT : HOVER_RIGHT;
   const hit = side === 'left' ? STRIKE_LEFT : STRIKE_RIGHT;
@@ -180,14 +203,16 @@ const strikeHand = (f: number, side: 'left' | 'right', ember: number): HandProps
     const k = easeOutCubic(invLerp(w0, w1, f));
     return { ...hover, x: hover.x + out * 12 * k, y: hover.y - 40 * k, curl: lerp(0.15, 0.6, k), spread: lerp(1, 0.7, k), tremble: 0, ember };
   }
+  const kind: BotKind = side === 'left' ? 'bubble' : 'orb';
+  const at = shellShift(kind, centroid(clawTips(hit)), strikeBotPose(Math.max(f, EVENTS.strike), kind), f);
   if (f < EVENTS.strike) {
     // the slam: one frame, very fast (motion-blurred)
     const k = easeInCubic(invLerp(w1, EVENTS.strike, f));
     const from = { x: hover.x + out * 12, y: hover.y - 40 };
     return {
       ...hit,
-      x: lerp(from.x, hit.x, k),
-      y: lerp(from.y, hit.y, k),
+      x: lerp(from.x, hit.x + at.x, k),
+      y: lerp(from.y, hit.y + at.y, k),
       rot: lerp(hover.rot ?? 0, hit.rot ?? 0, k),
       curl: lerp(0.6, hit.curl ?? 0.85, k),
       spread: lerp(0.7, hit.spread ?? 0.55, k),
@@ -198,7 +223,7 @@ const strikeHand = (f: number, side: 'left' | 'right', ember: number): HandProps
   const rebound = Math.sin(clamp(s / 6) * Math.PI) * -6;
   const lift = easeInOutCubic(invLerp(196, 214, f)) * 70;
   const away = easeInOutCubic(invLerp(196, 214, f)) * 30 * out;
-  return { ...hit, x: hit.x + away, y: hit.y + rebound - lift, ember, tremble: f > 214 ? 1.5 : 0 };
+  return { ...hit, x: hit.x + at.x + away, y: hit.y + at.y + rebound - lift, ember, tremble: f > 214 ? 1.5 : 0 };
 };
 
 const strikeTail = (f: number) => {
@@ -269,18 +294,7 @@ export const shot3 = (f: number): SceneState => {
     tailBack: struck ? undefined : { crescent: strikeTail(f), ember },
     tailFront: struck ? { crescent: strikeTail(f), ember } : undefined,
     hands: [strikeHand(f, 'left', ember), strikeHand(f, 'right', ember)],
-    bots: mapBots((k) => {
-      const hitSquash = struck ? 0.9 + 0.02 * clamp(s / 20) : 1 - 0.06;
-      return {
-        idle: false,
-        freeze: struck,
-        look: struck ? { x: lean[k] * -0.3, y: -0.4 } : { x: 0, y: -1 },
-        fear: 1,
-        squash: hitSquash,
-        lean: lean[k] * (struck ? 9 : 7),
-        cracks: struck ? [strikeState(f, k)] : undefined,
-      };
-    }),
+    bots: mapBots((k) => ({ ...strikeBotPose(f, k), cracks: struck ? [strikeState(f, k)] : undefined })),
     shards: struck
       ? [
           { kind: 'bubble', impacts: clawTips(STRIKE_LEFT), t: s, seed: 'shard-bubble' },
@@ -296,6 +310,24 @@ const TAIL_TAP_TIP = () => strikeCracks().cube.cracks[0]?.points[0] ?? { x: 540,
 
 /* ─────────────────────────── Shot 4 — Fix ─────────────────────────── */
 
+// The bots in shot 4: still frozen mid-flinch until their last seam closes,
+// then they straighten (overshooting into a stretch) and stretch again at 9.8 s.
+const fixBotPose = (f: number, k: BotKind): BotPose => {
+  const done = lastSealOf(k);
+  const straight = settle(f, done, 2.4, 0.4);
+  const stretch = settle(f, EVENTS.allSealed, 2.2, 0.45);
+  const fixed = f >= done;
+  return {
+    idle: fixed,
+    freeze: !fixed,
+    look: fixed ? { x: 0, y: -0.5 } : { x: inward[k] * 0.3, y: -0.4 },
+    fear: fixed ? 0 : 0.8,
+    bright: clamp((f - done) / 8),
+    squash: (fixed ? lerp(0.92, 1, straight) : 0.92) + 0.04 * Math.sin(Math.PI * clamp(stretch)) * (f >= EVENTS.allSealed ? 1 : 0),
+    lean: fixed ? inward[k] * 6 * (1 - clamp(straight)) : inward[k] * 6,
+  };
+};
+
 const traceHand = (f: number): HandProps | undefined => {
   const set = strikeCracks().bubble;
   const crack = set.cracks[set.longest];
@@ -304,7 +336,7 @@ const traceHand = (f: number): HandProps | undefined => {
   const tips = clawTips(base);
   // the claw nearest the bubble does the tracing
   const lead = tips.reduce((a, p, i) => (p.y > tips[a].y ? i : a), 0);
-  const p = pointOnCrack(crack.d, u);
+  const p = botPoint('bubble', pointOnCrack(crack.d, u), fixBotPose(f, 'bubble'), f); // on the drawn shell
   const away = easeInOutCubic(invLerp(EVENTS.trace.to + 2, EVENTS.trace.to + 22, f));
   return {
     ...base,
@@ -328,22 +360,7 @@ export const shot4 = (f: number): SceneState => {
     light: { level: 1, ember, warm },
     head: { eyes: { open: 1, look, narrow: warm * 0.3 }, ember, warm },
     hands: f < EVENTS.trace.to + 24 ? [traceHand(f)!] : undefined,
-    bots: mapBots((k) => {
-      const done = lastSealOf(k);
-      const straight = settle(f, done, 2.4, 0.4); // overshoots past 1: the stretch
-      const stretch = settle(f, EVENTS.allSealed, 2.2, 0.45);
-      const fixed = f >= done;
-      return {
-        idle: fixed,
-        freeze: !fixed,
-        look: fixed ? { x: 0, y: -0.5 } : { x: lean[k] * -0.3, y: -0.4 },
-        fear: fixed ? 0 : 0.8,
-        bright: clamp((f - done) / 8),
-        squash: (fixed ? lerp(0.92, 1, straight) : 0.92) + 0.04 * Math.sin(Math.PI * clamp(stretch)) * (f >= EVENTS.allSealed ? 1 : 0),
-        lean: fixed ? lean[k] * 9 * (1 - clamp(straight)) : lean[k] * 9,
-        cracks: [strikeState(f, k)],
-      };
-    }),
+    bots: mapBots((k) => ({ ...fixBotPose(f, k), cracks: [strikeState(f, k)] })),
   };
 };
 
@@ -366,8 +383,9 @@ const flickHand = (f: number): HandProps => {
     return { x: lerp(hover.x, at.x, t), y: lerp(hover.y, at.y, t), rot: lerp(hover.rot, base.rot, t) };
   };
   const tremble = 1.2;
-  if (k1 > 0 && k1 < 1) return { ...hover, ...visit(k1, h.orb.cracks[0].points[0]), tremble, warm: 0.5 };
-  if (k2 > 0 && k2 < 1) return { ...hover, ...visit(k2, h.cube.cracks[0].points[0]), tremble, warm: 0.5 };
+  const onShell = (k: BotKind, p: Pt) => botPoint(k, p, learnBotPose(f, k), f);
+  if (k1 > 0 && k1 < 1) return { ...hover, ...visit(k1, onShell('orb', h.orb.cracks[0].points[0])), tremble, warm: 0.5 };
+  if (k2 > 0 && k2 < 1) return { ...hover, ...visit(k2, onShell('cube', h.cube.cracks[0].points[0])), tremble, warm: 0.5 };
   return { ...hover, tremble, warm: 0.5 };
 };
 
@@ -385,6 +403,22 @@ const hairState = (f: number, which: 'orb' | 'cube'): CrackState | undefined => 
     pulseFrame: f,
     seal: [seal],
     warm: seal >= 1 ? 1 - invLerp(sealFrom + ev.sealFrames, sealFrom + ev.sealFrames + 30, f) : 0,
+  };
+};
+
+// The bots in shot 5: calm; a small start at each new crack, relief when it seals.
+const learnBotPose = (f: number, k: BotKind): BotPose => {
+  const startAt = k === 'orb' ? EVENTS.crack1.at : k === 'cube' ? EVENTS.crack2.at + 6 : -999;
+  const relief = k === 'orb' ? EVENTS.crack1.flick + EVENTS.crack1.sealFrames : k === 'cube' ? EVENTS.crack2.at + 10 : -999;
+  const start = Math.exp(-Math.max(0, f - startAt) / 4) * (f >= startAt ? 1 : 0);
+  const rel = Math.sin(clamp((f - relief) / 14) * Math.PI) * (f >= relief ? 1 : 0);
+  return {
+    idle: true,
+    bright: 0.6,
+    look: k === 'cube' && f >= EVENTS.crack2.at + 6 && f < EVENTS.crack2.at + 22 ? { x: 0.3, y: 0.7 } : { x: 0, y: -0.3 },
+    fear: start * 0.8,
+    squash: 1 - 0.04 * start + 0.03 * rel,
+    lean: inward[k] * 3 * start,
   };
 };
 
@@ -411,20 +445,7 @@ export const shot5 = (f: number): SceneState => {
     bots: mapBots((k) => {
       const crack1 = k === 'orb' ? hairState(f, 'orb') : undefined;
       const crack2 = k === 'cube' ? hairState(f, 'cube') : undefined;
-      // a small start at the new crack, relief when it seals
-      const startAt = k === 'orb' ? EVENTS.crack1.at : k === 'cube' ? EVENTS.crack2.at + 6 : -999;
-      const relief = k === 'orb' ? EVENTS.crack1.flick + EVENTS.crack1.sealFrames : k === 'cube' ? EVENTS.crack2.at + 10 : -999;
-      const start = Math.exp(-Math.max(0, f - startAt) / 4) * (f >= startAt ? 1 : 0);
-      const rel = Math.sin(clamp((f - relief) / 14) * Math.PI) * (f >= relief ? 1 : 0);
-      return {
-        idle: true,
-        bright: 0.6,
-        look: k === 'cube' && f >= EVENTS.crack2.at + 6 && f < EVENTS.crack2.at + 22 ? { x: 0.3, y: 0.7 } : { x: 0, y: -0.3 },
-        fear: start * 0.8,
-        squash: 1 - 0.04 * start + 0.03 * rel,
-        lean: (k === 'orb' ? 4 : -3) * start,
-        cracks: [sealedState(f, k), ...(crack1 ? [crack1] : []), ...(crack2 ? [crack2] : [])],
-      };
+      return { ...learnBotPose(f, k), cracks: [sealedState(f, k), ...(crack1 ? [crack1] : []), ...(crack2 ? [crack2] : [])] };
     }),
   };
 };
