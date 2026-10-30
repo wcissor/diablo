@@ -13,8 +13,8 @@ numbers; writes audio/build/verify.json.
                  these two only WARN: its beats are its own, see beat-shift.json)
   clicks         no sound cut off while ringing: synth's own tail check
                  (mix-info.json cut_tails) and a click detector on the mix
-                 (energy above 8 kHz in 2 ms blocks, > 20x the local median,
-                 away from every intended transient)
+                 (energy above 8 kHz in a sliding 1 ms window, > 20x its
+                 median over ±50 ms, away from every intended transient)
   strike         the loudest momentary loudness sits on the strike, full range
                  and through a 200 Hz high-pass (a phone speaker); the sample
                  peak sits on the strike
@@ -76,19 +76,18 @@ def intended_transients(cfg) -> tuple[list[float], list[tuple[float, float]]]:
 
 
 def hf_clicks(x: np.ndarray, fps: float, pts, spans):
-    """Energy above 8 kHz in 2 ms blocks against its median over ±50 ms;
-    returns [(frame, ratio, level dB, explained)] for every local peak over
-    CLICK_RATIO."""
+    """Energy above 8 kHz in a sliding 1 ms window (every 0.25 ms, so a click
+    is never split between blocks) against its median over ±50 ms; returns
+    [(frame, ratio, level dB, explained)] for every local peak over CLICK_RATIO."""
     hf = signal.sosfiltfilt(signal.butter(4, 8000, 'highpass', fs=SR, output='sos'), x, axis=0)
-    blk = int(0.002 * SR)
-    nb = hf.shape[0] // blk
-    e = (hf[:nb * blk] ** 2).reshape(nb, blk, -1).mean(axis=(1, 2))
-    med = ndimage.median_filter(e, size=51, mode='nearest')
+    hop = int(0.00025 * SR)
+    e = ndimage.uniform_filter1d((hf ** 2).sum(axis=1) / hf.shape[1], int(0.001 * SR), mode='constant')[::hop]
+    med = ndimage.median_filter(e, size=int(0.1 * SR / hop) | 1, mode='nearest')
     ratio = e / (med + 1e-14)
-    peak = ndimage.maximum_filter1d(ratio, 5) == ratio
+    peak = ndimage.maximum_filter1d(ratio, int(0.004 * SR / hop) | 1) == ratio
     out = []
     for i in np.flatnonzero(peak & (ratio > CLICK_RATIO) & (e > 1e-10)):
-        f = (i + 0.5) * blk / SR * fps
+        f = i * hop / SR * fps
         ok = any(abs(f - p) <= CLICK_TOL for p in pts) or any(a - CLICK_TOL <= f <= b + CLICK_TOL for a, b in spans)
         out.append((round(float(f), 1), round(float(ratio[i]), 1), round(float(10 * np.log10(e[i])), 1), ok))
     return out
