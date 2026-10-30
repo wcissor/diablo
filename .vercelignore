@@ -10,9 +10,10 @@
 .env*
 
 # Separate projects with their own deploys: the public site (Vercel project
-# diablo-site) and the Python engine
+# diablo-site), the Python engine and the Remotion intro reel
 /site/
 /engine/
+/reel/
 
 # The developer's local course: never uploaded, never built
 /learn/

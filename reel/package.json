@@ -1,0 +1,30 @@
+{
+  "name": "diablo-intro-reel",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Diablo, AI that evolves AI: 20-second vertical intro reel (Remotion)",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "still": "remotion still src/index.ts IntroReel",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "@types/react": "^19.2.2",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@fontsource/bodoni-moda": "^5.3.0",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@remotion/bundler": "^4.0.534",
+    "@remotion/cli": "^4.0.534",
+    "@remotion/fonts": "^4.0.534",
+    "@remotion/motion-blur": "^4.0.534",
+    "@remotion/paths": "^4.0.534",
+    "@remotion/renderer": "^4.0.534",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "remotion": "^4.0.534"
+  }
+}

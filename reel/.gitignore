@@ -1,0 +1,7 @@
+node_modules/
+build/
+out/frames/
+out/dev/
+out/qa/_*/
+audio/build/
+*.tsbuildinfo

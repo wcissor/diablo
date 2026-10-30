@@ -16,6 +16,8 @@ const eslintConfig = defineConfig([
     "site/**",
     // The developer's local course (untracked): not part of the app.
     "learn/**",
+    // The intro reel is its own Remotion project.
+    "reel/**",
   ]),
 ]);
 
