@@ -1,5 +1,5 @@
-// The motion-graphics kit: rings, sparkles, trim-path ribbons, impact bursts,
-// and the hole in a full-frame cover (wipes and the iris).
+// The motion-graphics kit: rings, glints, trim-path ribbons, and the hole in a
+// full-frame cover (wipes and the iris).
 
 import React from 'react';
 import { easeInCubic, easeOutBack, easeOutCubic } from '../lib/anim';
@@ -20,16 +20,18 @@ export const Rings: React.FC<{ f: number; ring: RingView }> = ({ f, ring }) => {
   );
 };
 
-// A four-point star with pinched sides.
-const star = (r: number) => {
-  const c = r * 0.12;
-  return `M0 ${-r}Q${c} ${-c} ${r} 0Q${c} ${c} 0 ${r}Q${-c} ${c} ${-r} 0Q${-c} ${-c} 0 ${-r}Z`;
-};
+// A round glint: a dot that pops, then opens into a thin ring and fades (no
+// four-point stars: that glyph belongs to another AI brand).
 export const Sparkle: React.FC<{ f: number; s: SparkView }> = ({ f, s }) => {
   const p = (f - s.t0) / 14;
   if (p <= 0 || p >= 1) return null;
-  const k = p < 0.35 ? easeOutBack(p / 0.35) : 1 - easeInCubic((p - 0.35) / 0.65);
-  return <path d={star(s.size)} fill={s.color} transform={`translate(${s.x} ${s.y}) rotate(${p * 90}) scale(${Math.max(0, k)})`} />;
+  const dot = s.size * 0.42 * (p < 0.3 ? easeOutBack(p / 0.3) : 1 - easeInCubic((p - 0.3) / 0.7));
+  return (
+    <g>
+      <circle cx={s.x} cy={s.y} r={Math.max(0, dot)} fill={s.color} />
+      <circle cx={s.x} cy={s.y} r={s.size * (0.4 + 0.9 * easeOutCubic(p))} fill="none" stroke={s.color} strokeWidth={4 * (1 - p)} />
+    </g>
+  );
 };
 
 // A stroke drawn between a and b of its length (0..1): the trim-path ribbon.
@@ -48,33 +50,6 @@ export const Ribbon: React.FC<{ d: string; a: number; b: number; width: number; 
       opacity={opacity}
     />
   ) : null;
-
-// Impact lines flying out from a hit (9 frames).
-export const Burst: React.FC<{ f: number; t0: number; x: number; y: number; color: string; n?: number; r0?: number; r1?: number; width?: number }> = ({
-  f,
-  t0,
-  x,
-  y,
-  color,
-  n = 10,
-  r0 = 50,
-  r1 = 190,
-  width = 9,
-}) => {
-  const p = (f - t0) / 9;
-  if (p <= 0 || p >= 1) return null;
-  const outer = r0 + (r1 - r0) * easeOutCubic(p);
-  const inner = r0 + (r1 - r0) * easeInCubic(p);
-  return (
-    <g stroke={color} strokeWidth={width * (1 - 0.5 * p)} strokeLinecap="round">
-      {Array.from({ length: n }, (_, i) => {
-        const a = (i / n) * 2 * Math.PI + 0.3;
-        const l = i % 2 ? 0.72 : 1;
-        return <line key={i} x1={x + Math.cos(a) * inner * l} y1={y + Math.sin(a) * inner * l} x2={x + Math.cos(a) * outer * l} y2={y + Math.sin(a) * outer * l} />;
-      })}
-    </g>
-  );
-};
 
 // The whole frame minus a circle (fill it with fillRule evenodd).
 export const holeD = (c: Circle) =>

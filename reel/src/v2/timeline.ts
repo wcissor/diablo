@@ -2,12 +2,12 @@
 // in which colour. The renderer (Reel.tsx) and the layout check read these, so
 // they always agree.
 
-import { END_CARD, EVENTS, SHOTS } from '../config';
-import { SAFE, type BotKind } from '../geometry';
+import { BLINKS, END_CARD, EVENTS, SHOTS } from '../config';
+import { BOTS, SAFE, STAGE_Y, type BotKind } from '../geometry';
 import { C } from '../theme';
-import type { BotPose, CrackSet, CrackState, Pt } from '../cast/types';
-import { botBounds, makeCracks } from '../cast/Bots';
-import { clamp, easeInBack, easeInCubic, easeInOutCubic, easeOutCubic, invLerp, lerp } from '../lib/anim';
+import { clamp, easeInBack, easeInCubic, easeInOutCubic, easeOutCubic, invLerp, lerp, type Pt } from '../lib/anim';
+import { SLASH_DIR, type Mood } from '../concepts/_kit/types';
+import { DAMAGE_AT, SLASH_LINE } from '../concepts/final/Bot';
 import { EYES, EYES_MID, HEAD_BOX, MARK_BOX } from '../logo';
 
 export const KINDS: BotKind[] = ['bubble', 'cube', 'orb'];
@@ -45,71 +45,36 @@ export const bgAt = (f: number): string => {
 };
 export const inkOn = (bg: string) => (bg === C.white ? C.maroon : C.white);
 
-/* ───────────── Bots and their cracks ───────────── */
+/* ───────────── Bots ───────────── */
 
-const box = Object.fromEntries(KINDS.map((k) => [k, botBounds(k)])) as Record<BotKind, ReturnType<typeof botBounds>>;
-// A bot's middle on screen (at rest).
-export const botCentre = (k: BotKind): Pt => ({ x: (box[k].x0 + box[k].x1) / 2, y: (box[k].y0 + box[k].y1) / 2 + ROW_DY });
+export const BOT_H = 240; // the bots' height, feet to crown (their middles, the layout check)
+// A bot's middle on screen (at rest). All three stand on one line.
+export const botCentre = (k: BotKind): Pt => ({ x: BOTS[k].cx, y: STAGE_Y + ROW_DY - BOT_H / 2 });
+// Where Diablo's slash chipped a bot, on screen (the lens frames it).
+export const damageScreen = (k: BotKind): Pt => ({ x: BOTS[k].cx + DAMAGE_AT[k].x, y: STAGE_Y + ROW_DY + DAMAGE_AT[k].y });
 
-// Where Diablo's slashes cross each shell: free porcelain, clear of the eyes,
-// so every crack lands on clear shell (stage coordinates, before ROW_DY).
-const IMPACTS: Record<BotKind, Pt[]> = {
-  bubble: [
-    { x: 215.9, y: 980.46 },
-    { x: 267.56, y: 1004.06 },
-    { x: 338.36, y: 1009.13 },
-    { x: 374.19, y: 1006.36 },
-  ],
-  cube: [{ x: 626, y: 1150 }],
-  orb: [
-    { x: 820.7, y: 968.96 },
-    { x: 793.11, y: 996.01 },
-    { x: 745.36, y: 1016.14 },
-    { x: 714.22, y: 1023.71 },
-  ],
-};
-let crackSets: Record<BotKind, CrackSet> | null = null;
-export const CRACKS = (): Record<BotKind, CrackSet> => {
-  if (!crackSets)
-    crackSets = {
-      bubble: makeCracks('bubble', IMPACTS.bubble, 'strike-bubble', 6, { maxMove: 2 }),
-      cube: makeCracks('cube', IMPACTS.cube, 'strike-cube', 6, { maxMove: 2 }),
-      orb: makeCracks('orb', IMPACTS.orb, 'strike-orb', 6, { maxMove: 2 }),
-    };
-  return crackSets;
-};
-export const impactScreen = (k: BotKind): Pt => {
-  const ps = IMPACTS[k];
-  return { x: ps.reduce((a, p) => a + p.x, 0) / ps.length, y: ps.reduce((a, p) => a + p.y, 0) / ps.length + ROW_DY };
-};
-
-const SEAL_STAGGER = 1.5;
-const SEAL_DUR = 8;
 export const sealEnd = (k: BotKind) => EVENTS.seals[k] + EVENTS.sealFrames;
 
-export const crackState = (f: number, k: BotKind): CrackState | null => {
-  if (f < HIT[k]) return null;
-  const set = CRACKS()[k];
-  const s0 = EVENTS.seals[k];
-  const t = (i: number) => s0 + i * SEAL_STAGGER;
-  return {
-    set,
-    grow: easeOutCubic(clamp((f - HIT[k]) / 10)),
-    weak: clamp((f - HIT[k] - 2) / 5) * (1 - clamp((f - s0) / EVENTS.sealFrames)),
-    pulseFrame: f,
-    seal: set.cracks.map((_, i) => easeOutCubic(clamp((f - t(i)) / SEAL_DUR))),
-    warm: f < sealEnd(k) ? 0 : 1 - clamp((f - sealEnd(k)) / 20),
-    pop: set.cracks.map((_, i) => clamp((f - t(i) - SEAL_DUR) / 8)),
-    glint: invLerp(EVENTS.glint.from, EVENTS.glint.to, f),
-  };
-};
-
+// What the reel tells a bot each frame (the bot draws its own face, hit, crack and seam).
 export interface BotView {
   kind: BotKind;
   scale: number; // pop-in, about the feet
-  pose: BotPose;
-  cracks: CrackState | null;
+  squash: number; // vertical scale about the feet (1 = rest)
+  lean: number; // degrees about the feet
+  lift: number; // px: the body hops while its shadow stays on the ground
+  look: Pt;
+  blink: number;
+  mood: Mood;
+  hitT?: number;
+  seal?: number;
+  sealT?: number;
 }
+
+// A 6-frame blink at each of the bot's BLINKS frames.
+const blinkAt = (f: number, k: BotKind) => {
+  for (const s0 of BLINKS[k]) if (f >= s0 && f < s0 + 6) return Math.sin((Math.PI * (f - s0 + 0.5)) / 6);
+  return 0;
+};
 
 const botAt = (f: number, k: BotKind, i: number): BotView | null => {
   // Shot 1, on white: pop in, bop on the beat, then look up.
@@ -121,39 +86,33 @@ const botAt = (f: number, k: BotKind, i: number): BotView | null => {
     return {
       kind: k,
       scale: spring(f - POPS[k]),
-      cracks: null,
-      pose: {
-        squash: landing(f, POPS[k] + 6, 0.12) * bops.reduce((a, b) => a * landing(f, b + 10, 0.1), 1),
-        lift: bops.reduce((a, b) => a + hop(f, b), 0),
-        look: { x: 0, y: lerp(-0.5 * read, -1, worry) },
-        fear: 0.7 * worry,
-        lean: worry * 1.5 * Math.sin(f * 2.2 + i),
-      },
+      squash: landing(f, POPS[k] + 6, 0.12) * bops.reduce((a, b) => a * landing(f, b + 10, 0.1), 1),
+      lean: worry * 1.5 * Math.sin(f * 2.2 + i),
+      lift: bops.reduce((a, b) => a + hop(f, b), 0),
+      look: { x: 0, y: lerp(-0.5 * read, -1, worry) },
+      blink: blinkAt(f, k),
+      mood: worry > 0.5 ? 'worried' : 'happy',
     };
   }
-  // Shots 3–4, on maroon: the slash, the crack, the seams, the cheer.
+  // Shots 3-4, on maroon: the slash, the chip, the white seam, the cheer.
   if (f >= EVENTS.botsBack && f < EVENTS.wipeOut.to) {
     const t0 = EVENTS.botsBack + 2 * i;
     if (f < t0) return null;
     const hit = HIT[k];
     const done = sealEnd(k);
-    const recoil = f >= hit ? Math.exp(-(f - hit) / 5) : 0;
-    const away = k === 'orb' ? -1 : 1; // lean away from the slash
     const hops = [done, ...EVENTS.cheer.map((c) => c + 2 * i)];
     return {
       kind: k,
       scale: spring(f - t0),
-      cracks: crackState(f, k),
-      pose: {
-        squash: (f >= hit ? landing(f, hit, 0.14) : 1) * hops.reduce((a, c) => a * landing(f, c + 12, 0.12), 1),
-        lift: hops.reduce((a, c) => a + hop(f, c, 12, 40), 0),
-        lean: away * 9 * recoil,
-        look: f < done ? { x: 0.5 * Math.sin(f * 0.7 + i * 2), y: -0.4 } : { x: 0, y: -0.3 },
-        fear: 0.9 * (1 - ramp(f, done, done + 6)),
-        bright: f >= done ? 1 - ramp(f, done, done + 12) : 0,
-        freeze: f >= hit && f < done,
-        idle: f < hit || f >= done + 12,
-      },
+      squash: hops.reduce((a, c) => a * landing(f, c + 12, 0.12), 1),
+      lean: 0, // the bot plays its own hit-stop squash and tilt
+      lift: hops.reduce((a, c) => a + hop(f, c, 12, 40), 0),
+      look: f < hit ? { x: 0.5 * Math.sin(f * 0.7 + i * 2), y: -0.4 } : { x: 0, y: -0.3 },
+      blink: f < hit || f >= done + 6 ? blinkAt(f, k) : 0,
+      mood: f < done ? 'worried' : 'proud',
+      hitT: f >= hit ? f - hit : undefined,
+      seal: f >= hit ? clamp((f - EVENTS.seals[k]) / EVENTS.sealFrames) : undefined,
+      sealT: f >= done ? f - done : undefined,
     };
   }
   // Shot 5: back, sealed and proud, bopping on the colour beats.
@@ -164,13 +123,15 @@ const botAt = (f: number, k: BotKind, i: number): BotView | null => {
     return {
       kind: k,
       scale: spring(f - t0),
-      cracks: crackState(f, k),
-      pose: {
-        squash: landing(f, t0 + 6, 0.12) * beats.reduce((a, b) => a * landing(f, b + 10, 0.1), 1),
-        lift: beats.reduce((a, b) => a + hop(f, b, 10, 30), 0),
-        look: { x: 0, y: -0.4 },
-        bright: 0.3,
-      },
+      squash: landing(f, t0 + 6, 0.12) * beats.reduce((a, b) => a * landing(f, b + 10, 0.1), 1),
+      lean: 0,
+      lift: beats.reduce((a, b) => a + hop(f, b, 10, 30), 0),
+      look: { x: 0, y: -0.4 },
+      blink: blinkAt(f, k),
+      mood: 'proud',
+      hitT: f - HIT[k],
+      seal: 1,
+      sealT: f - sealEnd(k),
     };
   }
   return null;
@@ -211,12 +172,30 @@ export const dotsAt = (f: number): DotView[] => {
   return out;
 };
 
-// Diablo's three slashes, one per bot (stage coordinates, before ROW_DY).
-export const SLASH: Record<BotKind, string> = {
-  bubble: 'M130 925 Q295 1045 470 985',
-  orb: 'M915 915 Q780 1005 640 1050',
-  cube: 'M700 1215 Q600 1110 470 1000',
+// Diablo's three slashes, one per bot: a shallow arc along the bot's own slash
+// line (stage coordinates, before ROW_DY), drawn in the direction of travel and
+// kept inside the safe area's width.
+const SLASH_BOW = 20; // px the arc's control point sits off the line
+const slashD = (k: BotKind): string => {
+  const { a, b } = SLASH_LINE[k];
+  const dir = { x: Math.cos((SLASH_DIR[k] * Math.PI) / 180), y: Math.sin((SLASH_DIR[k] * Math.PI) / 180) };
+  const [p, q] = a.x * dir.x + a.y * dir.y <= b.x * dir.x + b.y * dir.y ? [a, b] : [b, a];
+  const at = (v: Pt) => ({ x: BOTS[k].cx + v.x, y: STAGE_Y + v.y });
+  const P0 = at(p);
+  const Q0 = at(q);
+  const inX = (from: Pt, to: Pt): Pt => {
+    const x = clamp(to.x, SAFE.x0 + 6, SAFE.x1 - 6);
+    const t = to.x === from.x ? 1 : (x - from.x) / (to.x - from.x);
+    return { x, y: from.y + (to.y - from.y) * t };
+  };
+  const P = inX(Q0, P0);
+  const Q = inX(P0, Q0);
+  const L = Math.hypot(Q.x - P.x, Q.y - P.y) || 1;
+  const c = { x: (P.x + Q.x) / 2 - ((Q.y - P.y) / L) * SLASH_BOW, y: (P.y + Q.y) / 2 + ((Q.x - P.x) / L) * SLASH_BOW };
+  const n = (v: number) => v.toFixed(1);
+  return `M${n(P.x)} ${n(P.y)} Q${n(c.x)} ${n(c.y)} ${n(Q.x)} ${n(Q.y)}`;
 };
+export const SLASH: Record<BotKind, string> = { bubble: slashD('bubble'), cube: slashD('cube'), orb: slashD('orb') };
 // Trim window of a slash: it draws on through the hit and off right after.
 export const slashAt = (f: number, k: BotKind) => ({
   a: ramp(f, HIT[k] + 1, HIT[k] + 6, easeInCubic),
@@ -258,11 +237,11 @@ export interface LensView {
 }
 // The lens that finds each crack: it pops onto the bubble's, then jumps to the
 // cube's and the orb's on the beats, and shrinks away. It sits on the point
-// each slash hit (where the cracks are densest), kept inside the safe area.
+// each slash chipped, kept inside the safe area.
 const LENS_R = 130;
 const LENS_REACH = LENS_R * 1.12 + 34; // rim at full snap plus its ticks
 const lensOn = (k: BotKind): Pt => {
-  const p = impactScreen(k);
+  const p = damageScreen(k);
   return { x: clamp(p.x, SAFE.x0 + LENS_REACH, SAFE.x1 - LENS_REACH), y: p.y };
 };
 export const lensAt = (f: number): LensView | null => {

@@ -4,12 +4,12 @@
 
 import React from 'react';
 import { AbsoluteFill } from 'remotion';
-import { END_CARD, EVENTS } from '../config';
-import { BOTS } from '../geometry';
+import { END_CARD } from '../config';
+import { BOTS, STAGE_Y } from '../geometry';
 import { C, FONT } from '../theme';
-import { Bot } from '../cast/Bots';
+import { ConceptBotImpl as Bot } from '../concepts/final/Bot';
 import * as T from './timeline';
-import { Burst, holeD, Ribbon, Rings, Sparkle } from './kit';
+import { holeD, Ribbon, Rings, Sparkle } from './kit';
 import { FlatMark } from './Mark';
 import { Kinetic } from './Type';
 
@@ -17,23 +17,15 @@ const W = 1080;
 const H = 1920;
 const ROW = `translate(0 ${T.ROW_DY})`;
 
-// The bots, each popped in about its feet; on white they get a night outline.
-const BotsLayer: React.FC<{ f: number; bots: T.BotView[]; outline: boolean }> = ({ f, bots, outline }) => (
+// The bots on their line, each popped in, squashed and leaned about its feet;
+// the bot itself draws its face, the hit, the chip and the white seam.
+const BotsLayer: React.FC<{ f: number; bots: T.BotView[]; bg: 'white' | 'maroon' }> = ({ f, bots, bg }) => (
   <g transform={ROW}>
-    {bots.map((b) => {
-      const a = BOTS[b.kind];
-      const props = { kind: b.kind, frame: f, ...b.pose, cracks: b.cracks ? [b.cracks] : undefined };
-      return (
-        <g key={b.kind} transform={`translate(${a.cx} ${a.feetY}) scale(${b.scale}) translate(${-a.cx} ${-a.feetY})`}>
-          {outline ? (
-            <g filter="url(#outline)">
-              <Bot {...props} silhouette shadow={false} />
-            </g>
-          ) : null}
-          <Bot {...props} />
-        </g>
-      );
-    })}
+    {bots.map((b) => (
+      <g key={b.kind} transform={`translate(${BOTS[b.kind].cx} ${STAGE_Y}) scale(${b.scale}) rotate(${b.lean}) scale(1 ${b.squash})`}>
+        <Bot kind={b.kind} frame={f} bg={bg} mood={b.mood} look={b.look} blink={b.blink} hitT={b.hitT} seal={b.seal} sealT={b.sealT} lift={b.lift} />
+      </g>
+    ))}
   </g>
 );
 
@@ -44,7 +36,7 @@ const Lens: React.FC<{ f: number; lens: T.LensView; bots: T.BotView[] }> = ({ f,
     <g clipPath="url(#lens)">
       <rect x={lens.x - lens.r} y={lens.y - lens.r} width={2 * lens.r} height={2 * lens.r} fill={C.maroon} />
       <g transform={`translate(${lens.x} ${lens.y}) scale(${lens.zoom}) translate(${-lens.x} ${-lens.y})`}>
-        <BotsLayer f={f} bots={bots} outline={false} />
+        <BotsLayer f={f} bots={bots} bg="maroon" />
       </g>
     </g>
     <g transform={`translate(${lens.x} ${lens.y}) scale(${lens.snap}) rotate(${lens.spin})`}>
@@ -75,11 +67,6 @@ export const Reel: React.FC<{ f: number; hideWords?: boolean }> = ({ f, hideWord
     <AbsoluteFill style={{ backgroundColor: bg }}>
       <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} style={{ position: 'absolute', inset: 0 }}>
         <defs>
-          <filter id="outline" x="-12%" y="-12%" width="124%" height="124%">
-            <feMorphology in="SourceAlpha" operator="dilate" radius={6} result="d" />
-            <feFlood floodColor={C.night} />
-            <feComposite in2="d" operator="in" />
-          </filter>
           {lens ? (
             <clipPath id="lens">
               <circle cx={lens.x} cy={lens.y} r={lens.r} />
@@ -97,17 +84,13 @@ export const Reel: React.FC<{ f: number; hideWords?: boolean }> = ({ f, hideWord
             </g>
           ))}
           <g transform={shrink}>
-            <BotsLayer f={f} bots={bots} outline={bg === C.white} />
+            <BotsLayer f={f} bots={bots} bg={bg === C.white ? 'white' : 'maroon'} />
             <g transform={ROW}>
               {T.KINDS.map((k) => (
                 <Ribbon key={k} d={T.SLASH[k]} {...T.slashAt(f, k)} width={30} color={C.white} />
               ))}
             </g>
           </g>
-          {T.KINDS.map((k) => {
-            const p = T.impactScreen(k);
-            return <Burst key={k} f={f} t0={EVENTS.hits[k]} x={p.x} y={p.y} color={C.white} />;
-          })}
           {lens ? <Lens f={f} lens={lens} bots={bots} /> : null}
           {T.SPARKS.map((s, i) => (
             <Sparkle key={i} f={f} s={s} />

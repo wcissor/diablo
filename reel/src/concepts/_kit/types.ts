@@ -15,6 +15,7 @@ export interface ConceptBotProps {
   // The hit plays over roughly hitT 0..12, then the bot settles into its "cracked" look.
   seal?: number; // 0..1 how far the white seam has closed the damage (after a hit); 1 = fixed
   sealT?: number; // frames since the seam fully closed (celebration); undefined = not yet
+  lift?: number; // px the body is lifted by the parent (a hop); the ground shadow stays at y 0 and shrinks
 }
 export type ConceptBot = React.FC<ConceptBotProps>;
 

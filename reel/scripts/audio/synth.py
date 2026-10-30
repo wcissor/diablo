@@ -205,25 +205,32 @@ def blip(f=1400):
     return filt(x, 'low', 5000) * decay(n, 0.05, 0.002)
 
 
-def crack():
-    n = int(0.35 * SR)
-    x = np.zeros(n)
-    for _ in range(26):
-        a = int(rng.uniform(0, 0.22) * SR)
-        m = int(0.006 * SR)
-        x[a:a + m] += rng.standard_normal(min(m, n - a)) * rng.uniform(0.3, 1) * np.exp(-a / (0.08 * SR))
-    return filt(x, 'band', [1500, 9000])
+def zap():
+    """A short digital glitch: a square tone stepping through pitches, fading fast."""
+    n = int(0.09 * SR)
+    steps = np.repeat(np.array([1300, 700, 2400, 950, 1800, 600, 2100, 1100]), int(np.ceil(n / 8)))[:n]
+    x = np.sign(np.sin(2 * np.pi * np.cumsum(steps) / SR))
+    return filt(x, 'band', [400, 7000]) * decay(n, 0.03, 0.0005)
 
 
 def hit():
+    """The slash landing: a punchy thump and snap with a digital zap (a glitch, not a crunch)."""
     n = int(0.6 * SR)
     t = tv(n)
     thump = np.sin(2 * np.pi * np.cumsum(55 + 140 * np.exp(-t / 0.03)) / SR) * decay(n, 0.15, 0.0008)
     snap = filt(rng.standard_normal(n), 'band', [1200, 7000]) * decay(n, 0.05, 0.0005)
     out = np.tanh(1.8 * (thump + 0.7 * snap))
-    c = crack()
-    out[: len(c)] += 0.8 * c
+    z = zap()
+    out[: len(z)] += 0.55 * z
     return out
+
+
+def click():
+    """A crisp click: a chip snapping back into place."""
+    n = int(0.05 * SR)
+    t = tv(n)
+    tock = np.sin(2 * np.pi * 1900 * t) * decay(n, 0.008, 0.0003)
+    return tock + 0.6 * filt(rng.standard_normal(n), 'band', [2500, 9000]) * decay(n, 0.004, 0.0002)
 
 
 def shing():
@@ -340,6 +347,10 @@ def build_sfx():
     for f, pan in zip(X['hits'], [-0.45, 0.45, 0.1]):
         add(sfx, hit(), f, 0.9, pan)
         add(send, hit(), f, 0.2, pan)
+    for f, pan in zip(X['chipTicks'], [-0.5, -0.4, 0.5, 0.4, 0.15, 0.05]):
+        add(sfx, pop(2200, 1500, 0.03), f, 0.18, pan)
+    for f, pan in zip(X['chipClicks'], [-0.45, 0.45, 0.1]):
+        add(sfx, click(), f, 0.35, pan)
     for f, pan in zip(X['locks'], [-0.45, 0.1, 0.45]):
         add(sfx, blip(1400), f, 0.25, pan)
     add(sfx, whoosh(12, 300, 5000, 1.0, 1.3), X['swoosh'], 0.5, 0.3)

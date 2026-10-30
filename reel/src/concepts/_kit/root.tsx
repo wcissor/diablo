@@ -77,12 +77,13 @@ export const makeRoot = (Bot: ConceptBot) => {
             const seal = f >= SEAL[k] ? Math.min(1, (f - SEAL[k]) / 15) : 0;
             const sealT = f >= SEAL[k] + 15 ? f - SEAL[k] - 15 : undefined;
             const mood = sealT !== undefined ? 'proud' : hitT !== undefined || f > 4 ? 'worried' : 'happy';
+            const lift = sealT !== undefined && sealT < 12 ? 40 * Math.sin((Math.PI * sealT) / 12) : 0; // the reel's hop when a bot is fixed
             return (
               <At
                 key={k}
                 x={{ bubble: 270, cube: 540, orb: 800 }[k]}
                 y={1030}
-                p={{ kind: k, frame: f, bg: 'maroon', mood, hitT, seal: hitT !== undefined ? seal : undefined, sealT, look: { x: 0, y: hitT === undefined ? -0.6 : 0 } }}
+                p={{ kind: k, frame: f, bg: 'maroon', mood, hitT, seal: hitT !== undefined ? seal : undefined, sealT, lift, look: { x: 0, y: hitT === undefined ? -0.6 : 0 } }}
               />
             );
           })}

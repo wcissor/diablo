@@ -1,5 +1,5 @@
 // Gate 3 from the timeline itself: for every frame, the boxes of the words,
-// the bots, the lens, Diablo's mark and the end card on the canvas, checked
+// the bots (their contract box), the lens, Diablo's mark and the end card, checked
 // against the safe area (x 120–936, y 288–1248), the right rail (x > 936 from
 // y 800 down) and a 40 px gap between the words and the bots.
 // Writes out/qa/layout.json. Usage: npx tsx scripts/check-layout.ts
@@ -7,8 +7,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DURATION, END_CARD } from '../src/config';
-import { BOTS, RIGHT_RAIL, SAFE } from '../src/geometry';
-import { botBounds } from '../src/cast/Bots';
+import { BOTS, RIGHT_RAIL, SAFE, STAGE_Y } from '../src/geometry';
+import { BOT_BOX } from '../src/concepts/_kit/types';
 import { MARK_BOX } from '../src/logo';
 import * as T from '../src/v2/timeline';
 
@@ -46,16 +46,11 @@ for (let f = 0; f < DURATION; f++) {
   const botBoxes: Box[] = [];
   if (T.collapseAt(f) >= 1)
     for (const b of T.botsAt(f)) {
-      const a = BOTS[b.kind];
-      const r = botBounds(b.kind, b.pose);
+      // the contract's box (every resting state fits it), popped, squashed and lifted about the feet
+      const x = BOTS[b.kind].cx;
+      const feet = STAGE_Y + T.ROW_DY;
       const s = b.scale;
-      botBoxes.push({
-        who: b.kind,
-        x0: a.cx + (r.x0 - a.cx) * s,
-        x1: a.cx + (r.x1 - a.cx) * s,
-        y0: a.feetY + (r.y0 - a.feetY) * s + T.ROW_DY,
-        y1: a.feetY + (r.y1 - a.feetY) * s + T.ROW_DY,
-      });
+      botBoxes.push({ who: b.kind, x0: x + BOT_BOX.x0 * s, x1: x + BOT_BOX.x1 * s, y0: feet + (BOT_BOX.y0 * b.squash - b.lift) * s, y1: feet });
     }
   boxes.push(...botBoxes);
   const lens = T.lensAt(f);

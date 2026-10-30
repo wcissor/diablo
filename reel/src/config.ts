@@ -146,6 +146,8 @@ export const SFX = {
   zoom: EVENTS.eyeZoom.from,
   slashes: Object.values(EVENTS.hits).map((h) => h - 4),
   hits: Object.values(EVENTS.hits),
+  chipTicks: Object.values(EVENTS.hits).flatMap((h) => [h + 5, h + 8]), // the chips land
+  chipClicks: Object.values(EVENTS.seals).map((s) => s + 2), // each chip snaps back before the seam pours
   locks: [EVENTS.lens.bubble, EVENTS.lens.cube, EVENTS.lens.orb],
   swoosh: EVENTS.swoosh.from,
   sealZips: Object.values(EVENTS.seals),
