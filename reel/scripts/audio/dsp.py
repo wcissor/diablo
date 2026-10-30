@@ -356,19 +356,58 @@ def convolve_stereo(send: np.ndarray, ir: np.ndarray) -> np.ndarray:
     return np.stack([wl, wr], axis=1)
 
 
-class Bus:
-    """A stereo stem with hall and room sends."""
+TAIL_FADE_MS = 10.0
+TAIL_FLOOR_DB = -60.0
 
-    def __init__(self, n: int):
+
+def tail_fade(x: np.ndarray, ms: float = TAIL_FADE_MS) -> np.ndarray:
+    """Raised-cosine fade over the last `ms` of a signal (a copy)."""
+    x = np.array(x, dtype=float, copy=True)
+    L = min(int(ms * 1e-3 * SR), x.shape[0])
+    if L > 1:
+        w = 0.5 + 0.5 * np.cos(np.pi * np.arange(1, L + 1) / L)
+        x[-L:] *= w if x.ndim == 1 else w[:, None]
+    return x
+
+
+def tail_level_db(x: np.ndarray, ms: float = TAIL_FADE_MS) -> float:
+    """Level (dB re the signal's peak) just before its last `ms`: how much is
+    still ringing when the buffer ends."""
+    L = max(1, int(ms * 1e-3 * SR))
+    pk = float(np.max(np.abs(x)))
+    if pk <= 0 or x.shape[0] <= 2 * L:
+        return -np.inf
+    return float(a2db(np.max(np.abs(x[-2 * L:-L])) / pk))
+
+
+class Bus:
+    """A stereo stem with hall and room sends.
+
+    Every signal gets a raised-cosine fade over its last 10 ms (`fade_ms`) so a
+    buffer end can never click, and every signal that ends inside the bus is
+    checked: if it is still above TAIL_FLOOR_DB (re its own peak) where its
+    buffer ends it was cut off while ringing, and it is logged in `cut_tails`
+    (unless `cut_ok`: a deliberate cut, e.g. choked by the pre-strike silence)."""
+
+    def __init__(self, n: int, name: str = 'bus'):
         self.n = n
+        self.name = name
         self.dry = np.zeros((n, 2))
         self.hall = np.zeros((n, 2))
         self.room = np.zeros((n, 2))
+        self.cut_tails: list[dict] = []
 
     def add(self, sig: np.ndarray, at: int, pan=0.0, db: float = 0.0, hall: float = 0.0,
-            room: float = 0.0) -> None:
-        st = to_stereo(sig, pan) * db2a(db)
+            room: float = 0.0, fade_ms: float = TAIL_FADE_MS, cut_ok: bool = False, label: str = '') -> None:
         a = int(at)
+        if not cut_ok and a + sig.shape[0] <= self.n:
+            lv = tail_level_db(sig, fade_ms or TAIL_FADE_MS)
+            if lv > TAIL_FLOOR_DB:
+                self.cut_tails.append({'bus': self.name, 'label': label, 'at_s': round(a / SR, 3),
+                                       'end_s': round((a + sig.shape[0]) / SR, 3), 'tail_db': round(lv, 1)})
+        if fade_ms:
+            sig = tail_fade(sig, fade_ms)
+        st = to_stereo(sig, pan) * db2a(db)
         if a < 0:
             st, a = st[-a:], 0
         k = min(st.shape[0], self.n - a)

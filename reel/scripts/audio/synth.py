@@ -94,8 +94,28 @@ def ensemble(freq, n, fc, rng, detune_cents=6.0, rolloff=1.0, voices=2, spread=0
     return out / np.sqrt(voices)
 
 
+TAILS = 7.0  # buffers last this many time constants of their slowest part (e^-7: -61 dB)
+
+
+def ring_n(*taus, extra: float = 0.0) -> int:
+    """Samples for a sound whose slowest decay is max(taus) to die below -60 dB."""
+    return int((extra + TAILS * max(taus)) * SR) + 64
+
+
+def release(x: np.ndarray, off: float, rel: float) -> np.ndarray:
+    """Note-off: from `off` seconds the sound is damped with time constant `rel`
+    (a hand on the string, a pedal lifted); the buffer is trimmed to where it
+    has died away."""
+    n = min(x.shape[0], ring_n(rel, extra=off))
+    t = tvec(n)
+    g = np.exp(-np.maximum(t - off, 0.0) / rel)
+    return x[:n] * (g if x.ndim == 1 else g[:, None])
+
+
 def modal(n, freqs, amps, taus, rng, attack=0.0006):
-    """Struck resonator: a sum of exponentially decaying partials."""
+    """Struck resonator: a sum of exponentially decaying partials
+    (n=None: long enough for the slowest partial to die away)."""
+    n = ring_n(*taus) if n is None else n
     t = tvec(n)
     out = np.zeros(n)
     for f, a, tau in zip(freqs, amps, taus):
@@ -104,7 +124,12 @@ def modal(n, freqs, amps, taus, rng, attack=0.0006):
     return out * np.clip(t / attack, 0, 1)
 
 
-def pluck(f0, n, rng, partials=12, bright=1.6, decay=1.2, inharm=0.0, attack=0.002):
+def pluck(f0, n, rng, partials=12, bright=1.6, decay=1.2, inharm=0.0, attack=0.002, off=None, rel=0.12):
+    """Plucked string; the fundamental decays with `decay`, upper partials
+    faster. n=None sizes the buffer for the full ring (or for the release when
+    a note-off `off` is given)."""
+    if n is None:
+        n = ring_n(rel, extra=off) if off is not None else ring_n(decay)
     t = tvec(n)
     out = np.zeros(n)
     for k in range(1, partials + 1):
@@ -112,14 +137,21 @@ def pluck(f0, n, rng, partials=12, bright=1.6, decay=1.2, inharm=0.0, attack=0.0
         if fk > 17000:
             break
         out += np.exp(-t / (decay / k ** 0.75)) * np.sin(TAU * fk * t + rng.uniform(0, 0.3)) / k ** bright
-    return out * np.sin(0.5 * np.pi * np.clip(t / attack, 0, 1))
+    out *= np.sin(0.5 * np.pi * np.clip(t / attack, 0, 1))
+    return release(out, off, rel) if off is not None else out
+
+
+def chime_taus(f0, length=1.0):
+    return np.array([1.7, 1.0, 0.55, 0.38, 0.25, 0.15]) * length * (440.0 / f0) ** 0.3
 
 
 def chime(f0, n, rng, length=1.0):
-    """A gold chime: near-harmonic bell partials, the upper ones dying first."""
+    """A gold chime: near-harmonic bell partials, the upper ones dying first
+    (n=None: the full ring)."""
     ratios = [1.0, 2.0, 2.99, 4.17, 5.43, 6.79]
     amps = [1.0, 0.42, 0.2, 0.13, 0.07, 0.04]
-    taus = np.array([1.7, 1.0, 0.55, 0.38, 0.25, 0.15]) * length * (440.0 / f0) ** 0.3
+    taus = chime_taus(f0, length)
+    n = ring_n(*taus) if n is None else n
     x = modal(n, [f0 * r for r in ratios], amps, taus, rng, attack=0.0012)
     t = tvec(n)
     x += 0.15 * rng.standard_normal(n) * np.exp(-t / 0.0015)  # strike
@@ -136,63 +168,67 @@ def norm(x):
 
 
 def thump(n, f_end, f_start, tau, rng, drive=2.0, attack=0.0015, sweep_tau=0.022):
-    """Sine kick with a falling pitch, saturated for harmonics."""
+    """Sine kick with a falling pitch, saturated for harmonics (n=None: the full ring)."""
+    n = ring_n(tau, extra=attack) if n is None else n
     t = tvec(n)
     f = f_end + (f_start - f_end) * np.exp(-t / sweep_tau)
     x = np.sin(TAU * np.cumsum(f) / SR) * ar(n, attack, tau)
     return sat(x, drive)
 
 
-def heartbeat(rng, strength=1.0, pitch=1.0, tau=0.11, body=1.0, click=1.0, length=0.7):
+def heartbeat(rng, strength=1.0, pitch=1.0, tau=0.11, body=1.0, click=1.0, knock=1.0):
     """One heart sound: a low pitched thump (felt), a muffled body and a soft
-    knock and click so it still reads as a transient on small speakers."""
-    n = int(length * SR)
+    knock and click so it still reads as a transient on small speakers. The
+    buffer lasts until the slowest part (thump or knock) has died away."""
+    n = ring_n(tau, 0.045, extra=0.003)
     t = tvec(n)
     x = thump(n, 46 * pitch, 105 * pitch, tau, rng, drive=1.8, attack=0.003, sweep_tau=0.018)
     nz = butter(rng.standard_normal(n), 'lowpass', 240 * pitch) * np.exp(-t / 0.035) * 0.35 * body
-    knock = np.sin(TAU * 150 * pitch * t) * ar(n, 0.002, 0.045) * 0.3
+    kn = (np.sin(TAU * 150 * pitch * t) + 0.35 * np.sin(TAU * 300 * pitch * t + 0.5)) * ar(n, 0.002, 0.045) * 0.3 * knock
     clk = butter(rng.standard_normal(n), 'bandpass', [700, 2800]) * np.exp(-t / 0.004) * 0.12 * click
-    return strength * (x + nz + knock + clk)
+    return strength * (x + nz + kn + clk)
 
 
-def lub_dub(rng, strength, pitch, gap, with_dub=True, tau=0.11):
-    n = int((gap + 0.7) * SR)
-    out = np.zeros(n)
-    lub = heartbeat(rng, strength, pitch, tau)
+def lub_dub(rng, strength, pitch, gap, with_dub=True, tau=0.11, knock=1.0):
+    lub = heartbeat(rng, strength, pitch, tau, knock=knock)
+    if not with_dub:
+        return lub
+    dub = heartbeat(rng, strength * 0.62, pitch * 1.22, tau * 0.75, click=0.6, knock=knock)
+    k = int(gap * SR)
+    out = np.zeros(max(len(lub), k + len(dub)))
     out[: len(lub)] += lub
-    if with_dub:
-        dub = heartbeat(rng, strength * 0.62, pitch * 1.22, tau * 0.75, click=0.6)
-        k = int(gap * SR)
-        out[k:k + len(dub)] += dub[: n - k]
+    out[k:k + len(dub)] += dub
     return out
 
 
 def grain(rng, fscale=1.0, tscale=1.0):
     """A porcelain micro-crack: an impulse into a few small high resonances."""
-    n = int(0.07 * SR * tscale)
     k = rng.integers(2, 4)
-    x = modal(n, rng.uniform(1800, 8800, k) * fscale, rng.uniform(0.3, 1.0, k),
-              rng.uniform(0.003, 0.016, k) * tscale, rng, attack=0.0001)
+    freqs = rng.uniform(1800, 8800, k) * fscale
+    amps = rng.uniform(0.3, 1.0, k)
+    taus = rng.uniform(0.003, 0.016, k) * tscale
+    x = modal(None, freqs, amps, taus, rng, attack=0.0001)
     x[:24] += rng.standard_normal(24) * np.linspace(1, 0, 24) * 0.8
     return x
 
 
-def porcelain_crack(rng, size=1.0, length=0.9):
-    """Sharp crack: a dense burst of micro-cracks thinning out, over a short
-    porcelain ring."""
-    n = int(length * SR)
+def porcelain_crack(rng, size=1.0, burst=0.45):
+    """Sharp crack: a dense burst of micro-cracks thinning out over `burst`
+    seconds, over a short porcelain ring (the buffer holds the whole ring)."""
+    taus = [0.22, 0.16, 0.12, 0.08, 0.06, 0.04]
+    n = max(ring_n(*taus), int((burst + 0.15) * SR))
     out = np.zeros(n)
     tt, i = 0.0, 0
-    while tt < 0.5 * length:
+    while tt < burst:
         g = grain(rng) * (0.9 * np.exp(-tt / 0.07) + 0.08) * rng.uniform(0.5, 1.0)
         k = int(tt * SR)
         m = min(len(g), n - k)
         out[k:k + m] += g[:m]
-        tt += rng.exponential(0.0015 + 0.05 * (tt / (0.5 * length)) ** 1.5)
+        tt += rng.exponential(0.0015 + 0.05 * (tt / burst) ** 1.5)
         i += 1
     base = rng.uniform(1650, 2050) / size
     ratios = np.array([1.0, 1.53, 2.27, 3.17, 4.12, 5.31]) * (1 + rng.normal(0, 0.012, 6))
-    out += 0.7 * modal(n, base * ratios, [1, .8, .6, .45, .3, .2], [0.22, 0.16, 0.12, 0.08, 0.06, 0.04], rng)
+    out += 0.7 * modal(n, base * ratios, [1, .8, .6, .45, .3, .2], taus, rng)
     return out
 
 

@@ -1,8 +1,10 @@
 // Diablo's hands: two floating clawed hands, no arms, detached like his
-// crescent. A maroon palm about half the head's width, its wrist cut clean at
-// the reel's 9° slant; three fingers and a thumb, each a short maroon sheath
-// from which a long crescent claw (thick at the root like the mark's horns)
-// tapers to a needle point: cream, the last quarter gold.
+// crescent. Seen from the back: a maroon palm about half the head's width, its
+// wrist cut clean at the reel's 9° slant, with three fingers and a thumb lying
+// on it, each rooted in a rounded knuckle (its cream rim a knuckle highlight)
+// and sheathing a long crescent claw (thick at the root like the mark's horns)
+// that tapers to a needle point: cream, the last quarter gold. Each sheath ends
+// in a slanted cut that runs further down the claw's convex back.
 //
 // Geometry is computed in one place (handGeometry) and shared by the renderer,
 // clawTips() and handBounds(), so the tips the shots aim with are exactly the

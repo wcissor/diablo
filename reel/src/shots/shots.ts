@@ -287,7 +287,7 @@ export const shot3 = (f: number): SceneState => {
     head: {
       dy: -10 * windK * (struck ? 0 : 1) + 10 * lunge,
       scale: 1 + 0.02 * lunge,
-      eyes: { open: 1, narrow: struck ? 0.25 : 0.15 * windK, look },
+      eyes: { open: 1, glare: struck ? 0.75 * (1 - ramp(f, EVENTS.find.from + 20, EVENTS.find.from + 34)) + 0.3 : 0.7 * windK, look },
       ember,
     },
     // the tail comes round in front for the tap and stays there for the shot

@@ -58,6 +58,7 @@ export interface EyeState {
   open: number; // 0..1 slit height (0 closed, 1 fully open)
   narrow?: number; // 0..1 the pleased squint (slits shorter and slightly lidded)
   look?: Pt; // px offset of both eyes inside the head (flicking to weak spots)
+  glare?: number; // 0..1 the menacing squint (a flat lid tilted toward the nose), for the strike
 }
 
 export interface HeadProps {

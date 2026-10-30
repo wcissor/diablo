@@ -10,19 +10,19 @@ const centroid = (ps: Pt[]) => ps.reduce((a, p) => ({ x: a.x + p.x / ps.length, 
 
 // Free shell for each target, as a scoring function: 0 inside, px outside.
 const BUBBLE = { x0: 182, x1: 380, y0: 976, y1: 1012 }; // above the eyes, inside the rounded top
-const ORB = { c: { x: 800, y: 1060 }, r: 90, eye: { x: 792, y: 1038 }, eyeClear: 54 };
+const ORB = { c: { x: 800, y: 1060 }, r: 92, eye: { x: 792, y: 1038 }, eyeClear: 40 }; // eye r 27 + a 13 px margin
 const missBubble = (p: Pt) =>
   Math.max(0, BUBBLE.x0 - p.x) + Math.max(0, p.x - BUBBLE.x1) + Math.max(0, BUBBLE.y0 - p.y) + Math.max(0, p.y - BUBBLE.y1);
 const missOrb = (p: Pt) =>
   Math.max(0, Math.hypot(p.x - ORB.c.x, p.y - ORB.c.y) - ORB.r) + Math.max(0, ORB.eyeClear - Math.hypot(p.x - ORB.eye.x, p.y - ORB.eye.y));
 
-const search = (side: 'left' | 'right', target: Pt, miss: (p: Pt) => number) => {
+const search = (side: 'left' | 'right', target: Pt, miss: (p: Pt) => number, reach = 24) => {
   let best: { pose: HandPose; score: number; tips: Pt[] } | null = null;
-  for (let rot = -40; rot <= 40; rot += 2)
-    for (let spread = 0.15; spread <= 1.001; spread += 0.05)
-      for (let curl = 0.6; curl <= 1.001; curl += 0.05)
-        for (let dy = -24; dy <= 24; dy += 4)
-          for (let dx = -24; dx <= 24; dx += 4) {
+  for (let rot = -36; rot <= 36; rot += 3)
+    for (let spread = 0.2; spread <= 1.001; spread += 0.1)
+      for (let curl = 0.7; curl <= 1.001; curl += 0.1)
+        for (let dy = -reach; dy <= reach; dy += 6)
+          for (let dx = -2 * reach; dx <= 2 * reach; dx += 6) {
             const base: HandPose = { side, x: 0, y: 0, rot, spread, curl };
             const c = centroid(clawTips(base));
             const pose = { ...base, x: target.x + dx - c.x, y: target.y + dy - c.y };
@@ -43,9 +43,9 @@ const search = (side: 'left' | 'right', target: Pt, miss: (p: Pt) => number) => 
 const r1 = (v: number) => Math.round(v * 100) / 100;
 for (const [side, target, miss] of [
   ['left', { x: 281, y: 994 }, missBubble],
-  ['right', { x: 800, y: 986 }, missOrb],
+  ['right', { x: 800, y: 995 }, missOrb],
 ] as const) {
-  const b = search(side, target, miss);
+  const b = search(side, target, miss, side === 'right' ? 36 : 24);
   const p = b.pose;
   console.log(
     `${side}: { side: '${side}', x: ${r1(p.x)}, y: ${r1(p.y)}, rot: ${p.rot}, spread: ${r1(p.spread ?? 0)}, curl: ${r1(p.curl ?? 0)} }`,

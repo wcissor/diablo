@@ -14,27 +14,18 @@ import { clamp, easeInOutCubic, easeOutCubic, invLerp, lerp } from '../lib/anim'
 
 /* ───────────── Where the blows land ───────────── */
 
-// Move a pose so the centroid of its claw tips sits on `target`.
-const aimHand = (pose: HandPose, target: Pt): HandPose => {
-  const tips = clawTips(pose);
-  const c = tips.reduce((a, p) => ({ x: a.x + p.x / tips.length, y: a.y + p.y / tips.length }), { x: 0, y: 0 });
-  return { ...pose, x: pose.x + target.x - c.x, y: pose.y + target.y - c.y };
-};
+// The strike poses: every claw tip lands on free shell — on the bubble above
+// its eyes, on the orb inside the sphere and clear of its eye. Solved by
+// scripts/aim-strike.ts against the hand geometry; re-run it if the hands change.
+export const STRIKE_LEFT: HandPose = { side: 'left', x: 226.84, y: 768.96, rot: 6, spread: 0.4, curl: 0.9 };
+export const STRIKE_RIGHT: HandPose = { side: 'right', x: 823.78, y: 770.32, rot: -12, spread: 0.2, curl: 1 };
 
-// The claws land on the upper front of the bubble and the orb shells.
-export const IMPACT_TARGET: Record<'bubble' | 'orb', Pt> = {
-  bubble: { x: BOTS.bubble.cx + 9, y: 1018 },
-  orb: { x: BOTS.orb.cx - 5, y: 1016 },
-};
 // Where the tail's point taps the cube (its top face): the cube's cracks start here.
 export const CUBE_TAP: Pt = { x: BOTS.cube.cx - 8, y: 950 };
 
-export const STRIKE_LEFT: HandPose = aimHand({ side: 'left', x: 270, y: 700, rot: 20, spread: 0.55, curl: 0.85 }, IMPACT_TARGET.bubble);
-export const STRIKE_RIGHT: HandPose = aimHand({ side: 'right', x: 810, y: 700, rot: -20, spread: 0.55, curl: 0.85 }, IMPACT_TARGET.orb);
-
-// Hover poses (shot 2 end, shot 3 start): out to the sides and higher.
-export const HOVER_LEFT: HandPose = { side: 'left', x: STRIKE_LEFT.x - 5, y: STRIKE_LEFT.y - 190, rot: 6, spread: 0.8, curl: 0.1 };
-export const HOVER_RIGHT: HandPose = { side: 'right', x: STRIKE_RIGHT.x + 5, y: STRIKE_RIGHT.y - 190, rot: -6, spread: 0.8, curl: 0.1 };
+// Hover poses (shot 2 end, shot 3 start): high on either side, clear of his horns (no words yet).
+export const HOVER_LEFT: HandPose = { side: 'left', x: STRIKE_LEFT.x - 5, y: STRIKE_LEFT.y - 240, rot: 6, spread: 0.8, curl: 0.1 };
+export const HOVER_RIGHT: HandPose = { side: 'right', x: STRIKE_RIGHT.x - 12, y: STRIKE_RIGHT.y - 240, rot: -6, spread: 0.8, curl: 0.1 };
 
 // The tail rests behind Diablo's left side, then its point taps the cube.
 export const TAIL_REST: TailCrescentPose = { x: 250, y: 880, rot: 10, scale: 1.0 };

@@ -15,8 +15,8 @@ import { resolvePose } from './bots/pose';
 import { BUBBLE, CUBE, ORB, outlineLocal } from './bots/shapes';
 import { bboxOf } from './bots/geom';
 
-export { makeCracks, makeHairline } from './bots/cracks';
-export type { BotCrack, BotCrackSet, BotWeakSpot } from './bots/cracks';
+export { makeCracks, makeHairline, freeShellPoint, isFreeShell } from './bots/cracks';
+export type { BotCrack, BotCrackSet, BotWeakSpot, ImpactInfo, MakeCracksOpts } from './bots/cracks';
 export { Shards, SHARD_LIFE } from './bots/Shards';
 export { pulseOf } from './bots/CrackLayer';
 

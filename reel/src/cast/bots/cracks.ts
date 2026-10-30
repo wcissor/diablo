@@ -279,16 +279,12 @@ export function makeCracks(kind: BotKind, impacts: Pt[], seed: string, count?: n
   info.forEach((im, j) => {
     if (info.slice(0, j).some((o) => !o.dropped && dist(o.at, im.at) < 12)) im.dropped = 'merged';
   });
-  const far = info.filter((im) => im.moved > 3);
-  if (far.length) {
-    const msg = `makeCracks(${kind}, '${seed}'): ${far
+  const describe = (list: ImpactInfo[]) =>
+    list
       .map((im) => `impact (${im.aimed.x.toFixed(1)}, ${im.aimed.y.toFixed(1)}) is not on free shell; moved ${im.moved.toFixed(1)} px to (${im.at.x.toFixed(1)}, ${im.at.y.toFixed(1)})`)
-      .join('; ')}`;
-    if (opts.maxMove !== undefined && far.some((im) => im.moved > opts.maxMove!)) throw new Error(msg);
-    if (!warned.has(msg)) {
-      warned.add(msg);
-      console.warn(msg);
-    }
+      .join('; ');
+  if (opts.maxMove !== undefined && info.some((im) => im.moved > opts.maxMove!)) {
+    throw new Error(`makeCracks(${kind}, '${seed}'): ${describe(info.filter((im) => im.moved > opts.maxMove!))}`);
   }
   const live = () => info.filter((im) => !im.dropped);
   const g0 = live();
@@ -346,11 +342,13 @@ export function makeCracks(kind: BotKind, impacts: Pt[], seed: string, count?: n
       }
     }
     const lone = imps.length === 1;
-    const nearEdge = insideDepth(p, shell) < 30;
+    const depth = insideDepth(p, shell);
+    const nearEdge = depth < 30;
+    const fan = (depth < 15 ? 150 : 200) * DEG; // right at the edge, keep the fan off the outline
     for (let i = 0; i < k; i++) {
       let h: number;
       if (lone && !nearEdge) h = base + Math.PI / k + (i / k) * Math.PI * 2 + (R() - 0.5) * 0.45;
-      else if (lone) h = base + (k === 1 ? 0 : (i / (k - 1) - 0.5) * 200 * DEG) + (R() - 0.5) * 0.3;
+      else if (lone) h = base + (k === 1 ? 0 : (i / (k - 1) - 0.5) * fan) + (R() - 0.5) * 0.3;
       else h = base + (k === 1 ? 0 : (i / (k - 1) - 0.5) * Math.min(150, 62 * (k - 1)) * DEG) + (R() - 0.5) * 0.4;
       const pts = walkNear(p, h, 105 + R() * 85, MIN_MAIN);
       if (pts) cracks.push(toCrack(pts, 0, -1, true));
@@ -362,6 +360,21 @@ export function makeCracks(kind: BotKind, impacts: Pt[], seed: string, count?: n
       else im.dropped = 'no-room';
     }
   });
+  // Say so (once) when the strike is not where it was aimed.
+  const far = info.filter((im) => im.moved > 3);
+  const lost = info.filter((im) => im.dropped);
+  if (far.length || lost.length) {
+    const msg = `makeCracks(${kind}, '${seed}'): ${[
+      far.length ? describe(far) : '',
+      ...lost.map((im) => `impact (${im.aimed.x.toFixed(1)}, ${im.aimed.y.toFixed(1)}) dropped (${im.dropped}): no puncture drawn there`),
+    ]
+      .filter(Boolean)
+      .join('; ')}`;
+    if (!warned.has(msg)) {
+      warned.add(msg);
+      console.warn(msg);
+    }
+  }
   // Nothing could start anywhere (should not happen): strike the shell's middle.
   if (!cracks.length) {
     const p = freeShellPoint(kind, { x: centre.x, y: centre.y - 40 }, 8);
@@ -385,6 +398,7 @@ export function makeCracks(kind: BotKind, impacts: Pt[], seed: string, count?: n
       const t = 0.3 + R() * 0.38;
       const at = pointAlong(parent.points, parent.length * t);
       const turn = (R() < 0.5 ? 1 : -1) * (32 + R() * 30) * DEG;
+      if (junctions.some((jn) => dist(jn.p, at.p) < 16)) continue; // forks keep apart (no double forks)
       const pts = walk(kind, at.p, at.angle + turn, 30 + R() * 45, R, forkOpts, others());
       if (pts.length < 3 || polyLength(pts) < minLen) continue;
       const idx = cracks.length;
@@ -403,7 +417,8 @@ export function makeCracks(kind: BotKind, impacts: Pt[], seed: string, count?: n
       if (pts) cracks.push(toCrack(pts, 0, -1, true));
     }
   }
-  fork(30, 16, 60);
+  fork(30, MIN_FORK, 60);
+  fork(24, 16, 40); // last resort, so `count` always holds (never needed in a 3,000-set sweep)
 
   const imps2 = live().map((im) => im.at);
   // Impact points that root two or more cracks are junctions too.
@@ -418,24 +433,26 @@ export function makeCracks(kind: BotKind, impacts: Pt[], seed: string, count?: n
   // 2–3 weak spots at junctions (forks first: they sit out on the shell).
   const want = 2 + (R() < 0.5 ? 1 : 0);
   const weakSpots: BotWeakSpot[] = [];
-  const place = (p: Pt, angle: number, links: WeakLink[], relaxed = false) => {
+  // level 0: clear of the face; 1: face clearance relaxed; 2: last resort (closer to edges and to each other)
+  const place = (p: Pt, angle: number, links: WeakLink[], level: 0 | 1 | 2 = 0) => {
     if (weakSpots.length >= want) return;
     const r = (kind === 'cube' ? 10 : 10.5) + R() * 3.5;
-    if (!okAt(kind, p, relaxed ? r + 3 : r + 6) || (!relaxed && !faceClear(kind, p))) return;
-    if (weakSpots.some((w) => dist(w, p) < (relaxed ? 30 : 40))) return;
+    if (!okAt(kind, p, r + [6, 3, 1][level]) || (level === 0 && !faceClear(kind, p))) return;
+    if (weakSpots.some((w) => dist(w, p) < [40, 30, 24][level])) return;
     if (imps2.some((q) => dist(q, p) < r + 9) && !links.every((l) => l.t === 0)) return; // not on top of a puncture
     weakSpots.push({ x: p.x, y: p.y, r, pts: blobPts(R), angle, links });
   };
   junctions.forEach((j) => place(j.p, j.angle, j.links));
-  const along = (i: number, t: number, relaxed = false) => {
+  const along = (i: number, t: number, level: 0 | 1 | 2 = 0) => {
     const q = pointAlong(cracks[i].points, cracks[i].length * t);
-    place(q.p, q.angle, [{ i, t }], relaxed);
+    place(q.p, q.angle, [{ i, t }], level);
   };
   if (weakSpots.length < 2) for (const t of [0.5, 0.75, 0.3, 0.9]) along(longest, t);
   for (let i = 0; i < cracks.length && weakSpots.length < 2; i++) for (const t of [0.6, 0.4, 0.8]) along(i, t);
-  // Always 2: relax the face clearance if the face left no room.
-  junctions.forEach((j) => weakSpots.length < 2 && place(j.p, j.angle, j.links, true));
-  for (let i = 0; i < cracks.length && weakSpots.length < 2; i++) for (const t of [0.5, 0.3, 0.7, 0.9]) along(i, t, true);
+  // Always 2: relax the face clearance if the face left no room, then the rest.
+  junctions.forEach((j) => weakSpots.length < 2 && place(j.p, j.angle, j.links, 1));
+  for (let i = 0; i < cracks.length && weakSpots.length < 2; i++) for (const t of [0.5, 0.3, 0.7, 0.9]) along(i, t, 1);
+  for (let i = 0; i < cracks.length && weakSpots.length < 2; i++) for (let t = 0.2; t < 0.99; t += 0.1) along(i, t, 2);
 
   const reach = cracks.reduce((m, cr) => Math.max(m, cr.rootDist + cr.length), 1);
   const set: BotCrackSet = { kind, cracks, weakSpots, longest, reach, impacts: live().map((im) => im.at), impactInfo: info };
