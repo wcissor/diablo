@@ -87,7 +87,7 @@ export const VOICE_LINES = [
 // silence for the 6 frames before the strike, a tense pulse under the cracks,
 // the warm swell at 9.8 s, a calm pulse to the end card and one low hit there.
 export const BEATS = {
-  heartbeat: [42, 62, 72, 86, 98, 108, 116, 123, 129],
+  heartbeat: [42, 62, 72, 86, 98, 108, 117, 125, 131],
   silence: { from: 132, to: 138 },
   strike: 138,
   slowPulse: [154, 174],
