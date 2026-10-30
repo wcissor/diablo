@@ -386,6 +386,7 @@ class Frames:
         self.full: dict[int, np.ndarray] = {}
         self.thumbs: dict[int, Image.Image] = {}
         self.shake: dict[int, np.ndarray] = {}
+        self.layout: dict[int, dict] = {}  # gate-3 measurements on every 5th frame and the kept frames
 
     def _png_path(self, i: int) -> Path | None:
         for pat in (f"frame-{i:03d}.png", f"frame-{i:04d}.png"):
@@ -446,6 +447,8 @@ class Frames:
                 self.thumbs[i] = Image.fromarray(rgb).reduce(10)
             if i in keep:
                 self.full[i] = np.array(rgb, copy=True)
+            if i % 5 == 0 or i in keep:
+                self.layout[i] = layout_sample(self.ctx, i, rgb)
             if i % 100 == 99:
                 log(f"  frame {i + 1}/{NF}")
         self.desc += f", {int(self.have.sum())} read"
@@ -806,11 +809,18 @@ def text_and_clearance(rgb: np.ndarray, band_y1: int = 700) -> dict:
     y0 = 250
     band = rgb[y0:band_y1]
     nonbg = delta_e_map(band, BG_TREE) > NONBG_DE
-    core = delta_e_map(band, CREAM_TREE) <= 20
-    core[TEXT_BAND_Y1 - y0:] = False
-    core[:, :WORDS_OCR_BOX.x0] = False  # claws or rims out at the sides are not words
-    core[:, WORDS_OCR_BOX.x1:] = False
-    out: dict = {"text_px": int(core.sum())}
+    cream = delta_e_map(band, CREAM_TREE) <= 20
+    cream[TEXT_BAND_Y1 - y0:] = False
+    cream[:, :WORDS_OCR_BOX.x0] = False  # claws or rims out at the sides are not words
+    cream[:, WORDS_OCR_BOX.x1:] = False
+    out: dict = {"text_px": int(cream.sum())}
+    if cream.sum() < 30:
+        return out
+    # glyph strokes are thick (Bodoni stems ≥ 8 px at 88 px); a 3 px cream rim on a hand or a horn is not text
+    lab_c, n_c = ndimage.label(cream, structure=np.ones((3, 3)))
+    radius = ndimage.maximum(ndimage.distance_transform_edt(cream), lab_c, index=np.arange(1, n_c + 1))
+    core = np.isin(lab_c, np.arange(1, n_c + 1)[np.asarray(radius) >= 2.5])
+    out["rim_px_ignored"] = int((cream & ~core).sum())
     if core.sum() < 30:
         return out
     rows = np.where(core.sum(axis=1) >= 2)[0]
@@ -874,56 +884,86 @@ def rail_report(rgb: np.ndarray) -> dict:
     return out
 
 
+def layout_sample(ctx: Ctx, f: int, rgb: np.ndarray) -> dict:
+    """Gate-3 numbers for one frame: words box and clearance (if words are up), right rail, end-card text."""
+    out: dict = {"words": " / ".join(ctx.words_visible(f)), "rail": rail_report(rgb)}
+    tc = text_and_clearance(rgb)
+    if out["words"]:
+        out.update(tc)
+    else:
+        out["cream_px_above_520"] = tc["text_px"]
+    shot = ctx.shot_at(f)
+    end = (ctx.config or {}).get("END_CARD") or {}
+    if ((shot["id"] == 7) if shot else f >= 549) and f >= end.get("nameIn", 549) + 8:
+        out["end_card_text_bbox"] = end_card_text_box(rgb)
+    return out
+
+
+def frame_ranges(frames: list[int], step: int = 5) -> str:
+    """[340, 345, 350, 420] → "340–350, 420"."""
+    out, run_ = [], []
+    for f in sorted(frames):
+        if run_ and f - run_[-1] > step:
+            out.append(run_)
+            run_ = []
+        run_.append(f)
+    if run_:
+        out.append(run_)
+    return ", ".join(f"{r[0]}–{r[-1]}" if len(r) > 1 else f"{r[0]}" for r in out)
+
+
 def g3_safe(ctx: Ctx, fr: Frames) -> Result:
-    per, bad = {}, []
-    for f in STILL_FRAMES:
-        rgb = fr.get(f)
-        if rgb is None:
-            continue
-        r: dict = {"words": " / ".join(ctx.words_visible(f))}
-        tc = text_and_clearance(rgb)
-        if not r["words"]:  # nothing to place; just note any cream above y 520 (rims, claws)
-            r["cream_px_above_520"] = tc["text_px"]
-        else:
-            r.update(tc)
-            if "bbox" not in tc:
-                bad.append(f"f{f}: words expected, no cream text found above y {TEXT_BAND_Y1}")
-            else:
-                if not WORDS_ZONE.contains(tc["bbox"]):
-                    bad.append(f"f{f}: words bbox {tc['bbox'].s()} outside words zone")
-                if tc.get("clearance", 999) < WORDS_CLEAR:
-                    bad.append(f"f{f}: words only {tc['clearance']:.0f} px from a character")
-        shot = ctx.shot_at(f)
-        if (shot["id"] == 7) if shot else f >= 549:
-            eb = end_card_text_box(rgb)
-            r["end_card_text_bbox"] = eb
-            if eb is not None and not SAFE.contains(eb):
-                bad.append(f"f{f}: end-card text {eb.s()} outside core area")
-        rr = rail_report(rgb)
-        r["rail"] = rr
-        if rr["px_800_1248"] > RAIL_MAX_PX:
-            bad.append(f"f{f}: {rr['px_800_1248']} px of action in the right rail ({rr['bbox_800_1248'].s()})")
-        per[f] = r
-    if not per:
+    """Automated part: words inside the words zone and 40 px clear of every character, nothing in the right rail,
+    end-card text inside the core area, on every 5th frame plus the stills. Characters inside the core area: manual."""
+    smp = fr.layout
+    if not smp:
         return Result(MISSING, "no frames")
+    boxes, clear, out_zone, too_close, no_text, rail, end_bad = [], [], [], [], [], [], []
+    for f in sorted(smp):
+        r = smp[f]
+        if r["words"]:
+            if "bbox" not in r:
+                no_text.append(f)
+            else:
+                boxes.append(r["bbox"])
+                if not WORDS_ZONE.contains(r["bbox"]):
+                    out_zone.append(f)
+                if "clearance" in r:
+                    clear.append((r["clearance"], f, r.get("nearest_character_px")))
+                    if r["clearance"] < WORDS_CLEAR:
+                        too_close.append(f)
+        if r["rail"]["px_800_1248"] > RAIL_MAX_PX:
+            rail.append(f)
+        eb = r.get("end_card_text_bbox")
+        if eb is not None and not SAFE.contains(eb):
+            end_bad.append(f)
     man = ctx.manual_verdict("G3")
-    ctx.m["G3"] = {"per_still": per, "problems": bad, "manual": man}
-    words_frames = [f for f in per if per[f]["words"]]
-    boxes = [per[f]["bbox"] for f in words_frames if "bbox" in per[f]]
-    clear = [per[f]["clearance"] for f in words_frames if "clearance" in per[f]]
+    ctx.m["G3"] = {"checked_frames": sorted(smp), "per_frame": smp, "stills": STILL_FRAMES, "manual": man,
+                   "words_outside_zone": out_zone, "words_too_close": too_close, "words_not_found": no_text,
+                   "rail_action": rail, "end_card_outside_core": end_bad}
     union = (Box(min(b.x0 for b in boxes), min(b.y0 for b in boxes), max(b.x1 for b in boxes), max(b.y1 for b in boxes))
              if boxes else None)
-    rail = ", ".join(f"f{f}:{per[f]['rail']['px_800_1248']}" for f in per)
-    text = (f"words bbox (union of {len(boxes)} stills) {union.s() if union else 'n/a'} vs zone {WORDS_ZONE.s()}; "
-            f"min clearance to a character {fnum(min(clear) if clear else None, 0)} px (≥ {WORDS_CLEAR}); "
-            f"right-rail action px (y 800–1248) {rail}")
-    for f in per:
-        if per[f].get("end_card_text_bbox"):
-            text += f"; end-card text f{f} {per[f]['end_card_text_bbox'].s()} (core {SAFE.s()})"
-    if bad:
-        text += f" · problems: {'; '.join(bad[:6])}" + (" …" if len(bad) > 6 else "")
+    worst = min(clear, key=lambda c: c[0]) if clear else None
+    text = (f"checked {len(smp)} frames (every 5th + stills): words bbox (union) {union.s() if union else 'n/a'} vs zone "
+            f"{WORDS_ZONE.s()}" + (f", outside at f{frame_ranges(out_zone)}" if out_zone else "")
+            + (f", words not found at f{frame_ranges(no_text)}" if no_text else "")
+            + (f"; min clearance to a character {worst[0]:.0f} px at f{worst[1]}"
+               + (f" (character at x {worst[2][0]}, y {worst[2][1]})" if worst[2] else "")
+               + f" (≥ {WORDS_CLEAR})" if worst else "")
+            + (f", under {WORDS_CLEAR} px at f{frame_ranges(too_close)}" if too_close else ""))
+    if rail:
+        top = max(rail, key=lambda f: smp[f]["rail"]["px_800_1248"])
+        text += (f"; right rail (x ≥ 936, y 800–1248) has action at f{frame_ranges(rail)} "
+                 f"(max {smp[top]['rail']['px_800_1248']} px at f{top}, {smp[top]['rail']['bbox_800_1248'].s()})")
+    else:
+        text += "; right rail (x ≥ 936, y 800–1248) clear"
+    ends = [f for f in smp if smp[f].get("end_card_text_bbox")]
+    if ends:
+        f = max(ends)
+        text += f"; end-card text f{f} {smp[f]['end_card_text_bbox'].s()}" + (" OUTSIDE core" if end_bad else " in core")
     text += f" · {manual_text(man)}"
-    return Result(combine(not bad, man), text)
+    auto_ok = not (out_zone or too_close or no_text or rail or end_bad)
+    return Result(combine(auto_ok, man), text)
 
 
 # ── G4 text ──
