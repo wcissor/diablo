@@ -22,6 +22,10 @@ export const FlatMark: React.FC<{ m: MarkView; id: string }> = ({ m, id }) => {
         <mask id={`${id}-cres`} maskUnits="userSpaceOnUse" x={300} y={480} width={620} height={740}>
           <path d={SPINE} pathLength={1} fill="none" stroke="#fff" strokeWidth={170} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={`${m.crescent} 3`} />
         </mask>
+        <clipPath id={`${id}-shape`}>
+          <path d={CRESCENT_PATH} />
+          <path d={HEAD_PATH} transform={head} />
+        </clipPath>
       </defs>
       {m.crescent > 0.001 ? <path d={CRESCENT_PATH} fill={m.color} mask={m.crescent < 0.999 ? `url(#${id}-cres)` : undefined} /> : null}
       {m.headScale > 0.001 ? (
@@ -42,6 +46,12 @@ export const FlatMark: React.FC<{ m: MarkView; id: string }> = ({ m, id }) => {
               />
             );
           })}
+        </g>
+      ) : null}
+      {m.shine !== undefined ? (
+        // a band of light sweeping across the head and crescent
+        <g clipPath={`url(#${id}-shape)`}>
+          <rect x={MARK_BOX.x - 260 + (MARK_BOX.w + 400) * m.shine} y={MARK_BOX.y - 300} width={110} height={MARK_BOX.h + 600} fill="#fff" opacity={0.42} transform={`rotate(24 ${MC.x} ${MC.y})`} />
         </g>
       ) : null}
     </g>

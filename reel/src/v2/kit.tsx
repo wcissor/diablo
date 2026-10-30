@@ -3,7 +3,8 @@
 
 import React from 'react';
 import { easeInCubic, easeOutBack, easeOutCubic } from '../lib/anim';
-import type { Circle, RingView, SparkView } from './timeline';
+import type { Pt } from '../lib/anim';
+import type { Arc, Circle, RingView, SparkView } from './timeline';
 
 // Rings that burst out from a point and thin away (16 frames each, 3 apart).
 export const Rings: React.FC<{ f: number; ring: RingView }> = ({ f, ring }) => {
@@ -50,6 +51,33 @@ export const Ribbon: React.FC<{ d: string; a: number; b: number; width: number; 
       opacity={opacity}
     />
   ) : null;
+
+// A blade swipe along a quadratic arc, drawn between a and b of its length
+// (0..1): a filled sliver, sharp at the tail and full width at the round head.
+export const Blade: React.FC<{ arc: Arc; a: number; b: number; width: number; color: string }> = ({ arc, a, b, width, color }) => {
+  if (b - a < 0.01) return null;
+  const { p0, c, p1 } = arc;
+  const at = (u: number): Pt => ({
+    x: (1 - u) * (1 - u) * p0.x + 2 * (1 - u) * u * c.x + u * u * p1.x,
+    y: (1 - u) * (1 - u) * p0.y + 2 * (1 - u) * u * c.y + u * u * p1.y,
+  });
+  const N = 20;
+  const left: Pt[] = [];
+  const right: Pt[] = [];
+  for (let i = 0; i <= N; i++) {
+    const u = a + ((b - a) * i) / N;
+    const tx = 2 * (1 - u) * (c.x - p0.x) + 2 * u * (p1.x - c.x);
+    const ty = 2 * (1 - u) * (c.y - p0.y) + 2 * u * (p1.y - c.y);
+    const l = Math.hypot(tx, ty) || 1;
+    const w = (width / 2) * Math.pow(i / N, 0.7);
+    const p = at(u);
+    left.push({ x: p.x - (ty / l) * w, y: p.y + (tx / l) * w });
+    right.push({ x: p.x + (ty / l) * w, y: p.y - (tx / l) * w });
+  }
+  const n = (q: Pt) => `${q.x.toFixed(1)} ${q.y.toFixed(1)}`;
+  const r = (width / 2).toFixed(1);
+  return <path d={`M${left.map(n).join('L')}A${r} ${r} 0 0 1 ${n(right[N])}L${right.reverse().map(n).join('L')}Z`} fill={color} />;
+};
 
 // The whole frame minus a circle (fill it with fillRule evenodd).
 export const holeD = (c: Circle) =>

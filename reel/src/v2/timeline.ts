@@ -172,11 +172,18 @@ export const dotsAt = (f: number): DotView[] => {
   return out;
 };
 
-// Diablo's three slashes, one per bot: a shallow arc along the bot's own slash
-// line (stage coordinates, before ROW_DY), drawn in the direction of travel and
-// kept inside the safe area's width.
+// Diablo's three slashes, one per bot: a blade swipe along a shallow arc on the
+// bot's own slash line (stage coordinates, before ROW_DY), in the direction of
+// travel. Each end stays inside the safe area and short of the neighbouring
+// bots (ears and mitts included), so a swipe never spears the wrong bot.
 const SLASH_BOW = 20; // px the arc's control point sits off the line
-const slashD = (k: BotKind): string => {
+const SLASH_X: Record<BotKind, [number, number]> = { bubble: [SAFE.x0 + 6, 400], cube: [392, 672], orb: [680, SAFE.x1 - 6] };
+export interface Arc {
+  p0: Pt;
+  c: Pt;
+  p1: Pt;
+}
+const slashArc = (k: BotKind): Arc => {
   const { a, b } = SLASH_LINE[k];
   const dir = { x: Math.cos((SLASH_DIR[k] * Math.PI) / 180), y: Math.sin((SLASH_DIR[k] * Math.PI) / 180) };
   const [p, q] = a.x * dir.x + a.y * dir.y <= b.x * dir.x + b.y * dir.y ? [a, b] : [b, a];
@@ -184,28 +191,27 @@ const slashD = (k: BotKind): string => {
   const P0 = at(p);
   const Q0 = at(q);
   const inX = (from: Pt, to: Pt): Pt => {
-    const x = clamp(to.x, SAFE.x0 + 6, SAFE.x1 - 6);
+    const x = clamp(to.x, SLASH_X[k][0], SLASH_X[k][1]);
     const t = to.x === from.x ? 1 : (x - from.x) / (to.x - from.x);
     return { x, y: from.y + (to.y - from.y) * t };
   };
   const P = inX(Q0, P0);
   const Q = inX(P0, Q0);
   const L = Math.hypot(Q.x - P.x, Q.y - P.y) || 1;
-  const c = { x: (P.x + Q.x) / 2 - ((Q.y - P.y) / L) * SLASH_BOW, y: (P.y + Q.y) / 2 + ((Q.x - P.x) / L) * SLASH_BOW };
-  const n = (v: number) => v.toFixed(1);
-  return `M${n(P.x)} ${n(P.y)} Q${n(c.x)} ${n(c.y)} ${n(Q.x)} ${n(Q.y)}`;
+  return { p0: P, c: { x: (P.x + Q.x) / 2 - ((Q.y - P.y) / L) * SLASH_BOW, y: (P.y + Q.y) / 2 + ((Q.x - P.x) / L) * SLASH_BOW }, p1: Q };
 };
-export const SLASH: Record<BotKind, string> = { bubble: slashD('bubble'), cube: slashD('cube'), orb: slashD('orb') };
-// Trim window of a slash: it draws on through the hit and off right after.
+export const SLASH: Record<BotKind, Arc> = { bubble: slashArc('bubble'), cube: slashArc('cube'), orb: slashArc('orb') };
+// A slash is a fast blade: its head crosses in 3 frames, its tail chases it off
+// in 4 (on screen about 5 frames).
 export const slashAt = (f: number, k: BotKind) => ({
-  a: ramp(f, HIT[k] + 1, HIT[k] + 6, easeInCubic),
-  b: ramp(f, HIT[k] - 4, HIT[k] + 1, easeOutCubic),
+  a: ramp(f, HIT[k] - 1, HIT[k] + 3, easeInCubic),
+  b: ramp(f, HIT[k] - 3, HIT[k], easeOutCubic),
 });
 
 export const flashAt = (f: number) => {
   for (const h of [HIT.bubble, HIT.cube]) {
     if (f === h) return 0.75;
-    if (f === h + 1) return 0.25;
+    if (f === h + 1) return 0.18;
   }
   return 0;
 };
@@ -235,24 +241,41 @@ export interface LensView {
   snap: number; // the rim's scale kick as it locks on (1 at rest)
   spin: number; // degrees
 }
-// The lens that finds each crack: it pops onto the bubble's, then jumps to the
-// cube's and the orb's on the beats, and shrinks away. It sits on the point
-// each slash chipped, kept inside the safe area.
+// The lens: on the "finds" beat it pops onto the bubble's chip, jumps to the
+// cube's and the orb's, and shrinks away; on the "fixes" beat it comes back and
+// watches each chip snap shut and fill with white, in the order they seal. It
+// sits on the point each slash chipped, kept inside the safe area.
 const LENS_R = 130;
 const LENS_REACH = LENS_R * 1.12 + 34; // rim at full snap plus its ticks
 const lensOn = (k: BotKind): Pt => {
   const p = damageScreen(k);
   return { x: clamp(p.x, SAFE.x0 + LENS_REACH, SAFE.x1 - LENS_REACH), y: p.y };
 };
+const LENS_TOURS: { from: number; to: number; stops: [number, BotKind][] }[] = [
+  {
+    from: EVENTS.lens.from,
+    to: EVENTS.lens.to,
+    stops: [
+      [EVENTS.lens.bubble, 'bubble'],
+      [EVENTS.lens.cube, 'cube'],
+      [EVENTS.lens.orb, 'orb'],
+    ],
+  },
+  {
+    from: EVENTS.lensFix.from,
+    to: EVENTS.lensFix.to,
+    stops: [
+      [EVENTS.lensFix.bubble, 'bubble'],
+      [EVENTS.lensFix.orb, 'orb'],
+      [EVENTS.lensFix.cube, 'cube'],
+    ],
+  },
+];
 export const lensAt = (f: number): LensView | null => {
-  const L = EVENTS.lens;
-  if (f < L.from || f >= L.to) return null;
-  const stops: [number, BotKind][] = [
-    [L.bubble, 'bubble'],
-    [L.cube, 'cube'],
-    [L.orb, 'orb'],
-  ];
-  let c = lensOn('bubble');
+  const tour = LENS_TOURS.find((t) => f >= t.from && f < t.to);
+  if (!tour) return null;
+  const { stops } = tour;
+  let c = lensOn(stops[0][1]);
   let last = 0;
   for (let j = 1; j < stops.length; j++) {
     const e = ramp(f, stops[j][0] - 3, stops[j][0], easeInOutCubic);
@@ -263,7 +286,7 @@ export const lensAt = (f: number): LensView | null => {
   const lockAt = stops[last][0];
   return {
     ...c,
-    r: LENS_R * spring(f - L.from) * (1 - ramp(f, L.to - 6, L.to, easeInCubic)),
+    r: LENS_R * spring(f - tour.from) * (1 - ramp(f, tour.to - 7, tour.to - 1, easeInCubic)),
     zoom: 2.1,
     snap: 1 + 0.12 * (1 - clamp(spring(f - lockAt, 1.6, 0.9))),
     spin: 90 * last + 90 * ramp(f, lockAt, lockAt + 6, easeOutCubic),
@@ -290,27 +313,29 @@ export interface SparkView {
   color: string;
 }
 
-const HOOK_RINGS: RingView[] = KINDS.map((k) => ({ ...botCentre(k), t0: POPS[k], r1: 180, color: C.maroon, width: 16, n: 2 }));
+// Rings burst a beat after each pop, once the bot has grown into them.
+const HOOK_RINGS: RingView[] = KINDS.map((k) => ({ ...botCentre(k), t0: POPS[k] + 2, r1: 180, color: C.maroon, width: 16, n: 2 }));
 const LAND = { x: 540, y: 820 };
 export const RINGS: RingView[] = [
   { ...DOT, t0: EVENTS.dot, r1: 90, color: C.maroon, width: 10, n: 1 },
   ...HOOK_RINGS,
   { ...LAND, t0: EVENTS.drop.land, r0: 120, r1: 620, color: C.white, width: 28, n: 3 },
   ...KINDS.map((k) => ({ ...botCentre(k), t0: sealEnd(k), r1: 200, color: C.white, width: 14, n: 2 })),
-  ...KINDS.map((k, i) => ({ ...botCentre(k), t0: EVENTS.botsUp + 4 * i, r1: 190, color: C.white, width: 14, n: 2 })),
+  ...KINDS.map((k, i) => ({ ...botCentre(k), t0: EVENTS.botsUp + 4 * i + 2, r1: 190, color: C.white, width: 14, n: 2 })),
 ];
 export const SPARKS: SparkView[] = [
   ...EVENTS.bops.flatMap((b, j) =>
     KINDS.map((k, i) => {
       const c = botCentre(k);
+      // above each head, alternating sides, so no two glints pair up into "eyes" in a gap
       const side = (i + j) % 2 ? 1 : -1;
-      return { x: c.x + side * 105, y: c.y - 120 + 14 * j, t0: b + 2 + 2 * i, size: 26, color: C.maroon };
+      return { x: c.x + side * 58, y: c.y - 150 - 10 * ((i + j) % 2), t0: b + 2 + 2 * i, size: 26, color: C.maroon };
     }),
   ),
   ...KINDS.flatMap((k) => {
     const c = botCentre(k);
     return [
-      { x: c.x - 92, y: c.y - 118, t0: sealEnd(k), size: 30, color: C.white },
+      { ...damageScreen(k), t0: sealEnd(k) - 1, size: 56, color: C.white }, // a big flash on the new badge
       { x: c.x + 104, y: c.y - 78, t0: sealEnd(k) + 3, size: 22, color: C.white },
     ];
   }),
@@ -359,7 +384,10 @@ export interface MarkView {
   eyeOpen: number; // 0..1 (a closed eye is a thin line)
   squint: number; // 0..1
   zoom?: { s: number; at: Pt }; // the dive into his left eye
+  shine?: number; // 0..1 a band of light sweeping across the mark (the end card)
 }
+// One sweep of light across the logo while the end card holds.
+const SHINE = { from: 546, to: 562 };
 const ARRIVAL = { x: 540, y: 720, h: 640 };
 const FINALE = { x: 540, y: 660, h: 400 };
 export const CRESCENT_TIP: Pt = { x: 512, y: 630 };
@@ -419,6 +447,7 @@ export const markAt = (f: number): MarkView | null => {
       crescent: ramp(f, EVENTS.ribbon.from, EVENTS.ribbon.to, easeInOutCubic),
       eyeOpen: opening(f, EVENTS.eyesOpenEnd) * (1 - 0.94 * blink),
       squint: 0,
+      shine: f >= SHINE.from && f < SHINE.to ? invLerp(SHINE.from, SHINE.to, f) : undefined,
     };
   }
   return null;
@@ -429,10 +458,6 @@ export const eyeFillAt = (f: number) => (f < EVENTS.eyeZoom.to ? ramp(f, EVENTS.
 export const FINALE_RINGS: RingView[] = [
   { ...markPoint(FINALE, { x: 600, y: 900 }), t0: EVENTS.ribbon.to, r1: 260, color: C.maroon, width: 14, n: 2 },
   { ...markPoint(FINALE, HEAD_BASE), t0: EVENTS.headPop + 4, r0: 60, r1: 420, color: C.maroon, width: 16, n: 2 },
-];
-export const FINALE_SPARKS: SparkView[] = [
-  { ...markPoint(FINALE, { x: 690, y: 170 }), t0: 540, size: 30, color: C.maroon },
-  { ...markPoint(FINALE, { x: 875, y: 250 }), t0: 572, size: 24, color: C.maroon },
 ];
 
 /* ───────────── Wipes and the iris ───────────── */

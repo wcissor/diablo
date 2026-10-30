@@ -353,6 +353,8 @@ def build_sfx():
         add(sfx, click(), f, 0.35, pan)
     for f, pan in zip(X['locks'], [-0.45, 0.1, 0.45]):
         add(sfx, blip(1400), f, 0.25, pan)
+    for f, pan in zip(X['fixLocks'], [-0.45, 0.45, 0.1]):
+        add(sfx, blip(1750), f, 0.14, pan)  # the lens comes back for the fix, softer
     add(sfx, whoosh(12, 300, 5000, 1.0, 1.3), X['swoosh'], 0.5, 0.3)
     for f, pan in zip(X['sealZips'], [-0.45, 0.45, 0.1]):
         add(sfx, zip_(cfg['EVENTS']['sealFrames']), f, 0.22, pan)

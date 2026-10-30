@@ -9,7 +9,7 @@ import { BOTS, STAGE_Y } from '../geometry';
 import { C, FONT } from '../theme';
 import { ConceptBotImpl as Bot } from '../bots/Bot';
 import * as T from './timeline';
-import { holeD, Ribbon, Rings, Sparkle } from './kit';
+import { Blade, holeD, Ribbon, Rings, Sparkle } from './kit';
 import { FlatMark } from './Mark';
 import { Kinetic } from './Type';
 
@@ -42,7 +42,7 @@ const Lens: React.FC<{ f: number; lens: T.LensView; bots: T.BotView[] }> = ({ f,
     <g transform={`translate(${lens.x} ${lens.y}) scale(${lens.snap}) rotate(${lens.spin})`}>
       <circle r={lens.r} fill="none" stroke={C.white} strokeWidth={10} />
       {[0, 90, 180, 270].map((a) => (
-        <line key={a} x1={0} y1={-lens.r - 28} x2={0} y2={-lens.r + 20} stroke={C.white} strokeWidth={10} strokeLinecap="round" transform={`rotate(${a})`} />
+        <line key={a} x1={0} y1={-lens.r * (1 + 28 / 130)} x2={0} y2={-lens.r * (1 - 20 / 130)} stroke={C.white} strokeWidth={10 * Math.min(1, lens.r / 60)} strokeLinecap="round" transform={`rotate(${a})`} />
       ))}
     </g>
   </g>
@@ -87,7 +87,7 @@ export const Reel: React.FC<{ f: number; hideWords?: boolean }> = ({ f, hideWord
             <BotsLayer f={f} bots={bots} bg={bg === C.white ? 'white' : 'maroon'} />
             <g transform={ROW}>
               {T.KINDS.map((k) => (
-                <Ribbon key={k} d={T.SLASH[k]} {...T.slashAt(f, k)} width={30} color={C.white} />
+                <Blade key={k} arc={T.SLASH[k]} {...T.slashAt(f, k)} width={30} color={C.white} />
               ))}
             </g>
           </g>
@@ -99,9 +99,6 @@ export const Reel: React.FC<{ f: number; hideWords?: boolean }> = ({ f, hideWord
           {mark ? <FlatMark m={mark} id="mark" /> : null}
           {eyeFill > 0 ? <rect x={-40} y={-40} width={W + 80} height={H + 80} fill={C.maroon} opacity={eyeFill} /> : null}
           {wipeOut ? <circle cx={wipeOut.x} cy={wipeOut.y} r={wipeOut.r} fill={C.white} /> : null}
-          {T.FINALE_SPARKS.map((s, i) => (
-            <Sparkle key={i} f={f} s={s} />
-          ))}
         </g>
       </svg>
       {words ? (

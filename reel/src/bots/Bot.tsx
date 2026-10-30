@@ -10,16 +10,16 @@
 // channel offset; the cube's screen tears into scanline bars). A V-chip pops out
 // of its edge with two smaller chips that fall away, and one bold lightning-bolt
 // crack grows out of the line from the notch. The bot winces (>_<) for one
-// beat, does a double-take (a look at the crack, then at us), then waits,
-// worried: a chipped toy, never a wound. Every 30 frames a tiny round white
+// beat, does a double-take (a look at the crack, then at us), then waits with a
+// sheepish "oops" smile: a chipped toy, never a wound. Every 30 frames a tiny round white
 // spark pops in the dark-maroon crack and a few white pixels drift out.
 // The fix (seal 0..1): the chip flies back and snaps into its notch with a
 // click, then white pours down the bolt behind a bright weld bead the bot
-// watches, and sets as a raised white bolt inlay with two circuit pads: an
-// upgrade badge.
+// watches, and sets as a bold raised white bolt filling the notch: an upgrade
+// badge.
 // The celebration (sealT): light bursts out around the new badge as it swells,
-// ^^ and a grin; a pulse of light runs down the inlay from pad to pad (the pads
-// ping), then again every 45 frames. The parent hops it with `lift`; the shadow
+// ^^ and a grin; a pulse of light runs down the badge, then again every 45
+// frames. The parent hops it with `lift`; the shadow
 // stays on the ground and shrinks.
 
 import React from 'react';
@@ -28,7 +28,7 @@ import { clamp, easeInOutCubic, easeOutCubic, lerp, ramp, settle } from '../lib/
 import type { BotKind, ConceptBot } from './kit/types';
 import { BodyArt, BUBBLE_TAIL, CUBE_SCREEN, Mitt, Silhouette } from './Art';
 import { Face, type EyeMode, type FaceState, type MouthMode } from './Face';
-import { Chips, Dot, Fizz, keys, Pad, Pixels, Ring, WeldHead } from './fx';
+import { Chips, Dot, Fizz, keys, Pixels, Ring, WeldHead } from './fx';
 import { add, centroid, fx, grow, inside, lerpPt, mul, pointAt, pt, ribbon, rotate, shapeD, sub, unit, type Pt } from './geom';
 import { DAMAGE, OW, SPEC, mix, palette, type Pal } from './spec';
 
@@ -91,30 +91,31 @@ export const ConceptBotImpl: ConceptBot = ({ kind, frame, bg, mood = 'happy', lo
 
   /* ── the face ── */
   let eye: EyeMode = mood === 'worried' ? 'worried' : mood === 'proud' ? 'joy' : 'open';
-  let mth: MouthMode = mood === 'worried' ? 'wavy' : mood === 'proud' ? 'grin' : 'smile';
+  // once chipped, 'worried' turns sheepish: raised brows over a small smile ("oops"), never a sad wobble
+  let mth: MouthMode = mood === 'worried' ? (hit ? 'smile' : 'wavy') : mood === 'proud' ? 'grin' : 'smile';
   let bl = blink;
   let pupil = 1;
-  let blush = mood === 'worried' ? 0.55 : 1;
+  let blush = mood === 'worried' && !hit ? 0.55 : 1;
   let lk = look ?? { x: 0, y: 0 };
   const toward = (q: Pt) => unit(sub(q, faceC));
-  if (hit && t < 4) {
-    // one beat of a wince: >_<
+  if (hit && t < 6) {
+    // one beat of a wince: >_< (6 frames, so it clears the reel's 2-frame flash)
     eye = 'wince';
     mth = 'eep';
     bl = 0;
     blush = 0.9;
-  } else if (hit && t < 8) {
-    // the double-take: eyes pop wide and look at the crack (hitT 4-6), then snap to us (7)
+  } else if (hit && t < 10) {
+    // the double-take: eyes pop wide and look at the crack (hitT 6-8), then snap to us (9)
     eye = 'wide';
     mth = 'o';
     bl = 0;
     blush = 0.5;
-    pupil = 0.58 + 0.3 * ramp(t, 4, 8);
-    const g = 1 - ramp(t, 6.3, 7);
+    pupil = 0.58 + 0.3 * ramp(t, 6, 10);
+    const g = 1 - ramp(t, 8.3, 9);
     const v = toward(D.centre);
     lk = { x: v.x * g, y: v.y * g };
   }
-  if (hit && t >= 8.2 && t < 11) bl = Math.max(bl, keys(t, [[8.2, 0], [9, 0.95], [10, 0.55], [10.8, 0]]));
+  if (hit && t >= 10.2 && t < 13) bl = Math.max(bl, keys(t, [[10.2, 0], [11, 0.95], [12, 0.55], [12.8, 0]]));
   if (sealing) {
     // it watches the chip snap back, then follows the weld bead down the bolt
     const target = sl < POUR0 ? D.chip[0] : head;
@@ -215,16 +216,13 @@ export const ConceptBotImpl: ConceptBot = ({ kind, frame, bg, mood = 'happy', lo
   })();
   const pulseAt = glintF >= 0 ? lerp(D.mouth + 7, L - 1, ramp(glintF, 2, 11.5, easeInOutCubic)) : 0;
   const pulseAmp = glintF >= 0 ? 3.6 * keys(glintF, [[1.5, 0], [3, 1], [10.5, 1], [12, 0]]) : 0;
-  const ping = (f0: number) => (glintF >= 0 ? Math.exp(-(((glintF - f0) / 1.5) ** 2)) : 0);
   const ihw = (s: number) =>
-    (0.7 * hw(s) + 2.4) * clamp((front - s) / 6 + 0.15) * swell + (pulseAmp > 0 ? pulseAmp * Math.exp(-(((s - pulseAt) / 9) ** 2)) : 0);
+    (hw(s) + 3) * clamp((front - s) / 6 + 0.15) * swell + (pulseAmp > 0 ? pulseAmp * Math.exp(-(((s - pulseAt) / 9) ** 2)) : 0);
   const outer = (s: number) => Math.min(hw(s), Math.max(0, (reveal - s) * 0.9));
   const crackFrom = Math.max(0, front);
   const crackD = hit && reveal > crackFrom ? ribbon(D.line, crackFrom, reveal, outer) : '';
   const inlayRimD = front > 0 ? ribbon(D.line, 0, front, (s) => ihw(s) + RIM, 3) : '';
   const inlayD = front > 0 ? ribbon(D.line, 0, front, ihw, 3) : '';
-  const padPop = (k: number) => (k <= 0 ? 0 : k >= 1 ? 1 : 1 + 0.35 * Math.sin(Math.PI * k) - (1 - easeOutCubic(k)));
-  const padSwell = sealed ? 2 * swell - 1 : 1;
 
   /* ── the spark and pixels while it waits ── */
   // Only a cycle whose spark came after the crack settled (hitT 12) and before
@@ -309,13 +307,6 @@ export const ConceptBotImpl: ConceptBot = ({ kind, frame, bg, mood = 'happy', lo
           {face}
         </g>
 
-        {/* the circuit pads at the inlay's two ends; they pop as the glint leaves and arrives */}
-        {hit && front > 0 ? (
-          <>
-            <Pad at={mouthPad} r={5.4 * padPop(ramp(sl, POUR0, POUR0 + 0.12)) * padSwell * (1 + 0.45 * ping(1.5))} light={pal.light} ink={pal.ink} hole={pal.ink} />
-            <Pad at={tipPad} r={4.8 * padPop(sealed ? 1 : ramp(sl, POUR1, 1)) * padSwell * (1 + 0.5 * ping(12.5))} light={pal.light} ink={pal.ink} hole={pal.ink} />
-          </>
-        ) : null}
         {glintF >= 1 && glintF < 7 ? <Ring at={mouthPad} r={9 + 16 * ramp(glintF, 1, 7, easeOutCubic)} w={3 * (1 - ramp(glintF, 1, 7))} color={pal.fx} /> : null}
         {glintF >= 12 ? <Ring at={tipPad} r={8 + 12 * ramp(glintF, 12, 15, easeOutCubic)} w={2.4 * (1 - ramp(glintF, 12, 15))} color={pal.light} rim={pal.ink} /> : null}
 

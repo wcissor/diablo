@@ -4,8 +4,9 @@ import { C, FONT } from './theme';
 import { END_CARD } from './config';
 import { IntroReel, useFonts } from './IntroReel';
 
-// out/cover.png: the strike without its words, rendered as a still at
-// COVER_FRAME (the three bots cracked and glowing), with the name on top.
+// out/cover.png: the reel without its words, rendered as a still at
+// COVER_FRAME (the bots cheering with their white badges), with the name just
+// above them, so a square or 4:5 crop of the middle keeps both.
 export const Cover: React.FC = () => {
   useFonts();
   return (
@@ -16,7 +17,7 @@ export const Cover: React.FC = () => {
           position: 'absolute',
           left: 0,
           width: 1080,
-          top: 330,
+          top: 560,
           textAlign: 'center',
           fontFamily: FONT.sans,
           fontWeight: 800,

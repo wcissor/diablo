@@ -141,13 +141,3 @@ export const Pixels: React.FC<{ from: Pt[]; out: Pt; t: number; seed: number; co
 export const WeldHead: React.FC<{ at: Pt; pulse: number; light: string; ink: string }> = ({ at, pulse, light, ink }) => (
   <circle cx={fx(at.x)} cy={fx(at.y)} r={fx(7.8 + 1.1 * pulse)} fill={light} stroke={ink} strokeWidth={5} paintOrder="stroke" />
 );
-
-// A circuit-terminal pad: a small white ring pad with an ink rim and a hole.
-export const Pad: React.FC<{ at: Pt; r: number; light: string; ink: string; hole: string; rim?: number }> = ({ at, r, light, ink, hole, rim = 2.6 }) =>
-  r > 0.4 ? (
-    <g>
-      <circle cx={fx(at.x)} cy={fx(at.y)} r={fx(r + rim)} fill={ink} />
-      <circle cx={fx(at.x)} cy={fx(at.y)} r={fx(r)} fill={light} />
-      <circle cx={fx(at.x)} cy={fx(at.y)} r={fx(r * 0.38)} fill={hole} />
-    </g>
-  ) : null;

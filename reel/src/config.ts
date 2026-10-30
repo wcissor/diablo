@@ -72,7 +72,8 @@ export const EVENTS = {
   eyeZoom: { from: 150, to: 161 }, // the camera dives into his eye
   botsBack: 161,
   hits: { bubble: 180, orb: 188, cube: 195 }, // three slashes, one per bot
-  lens: { from: 208, bubble: 208, cube: 223, orb: 238, to: 258 }, // a lens finds each crack
+  lens: { from: 208, bubble: 208, cube: 223, orb: 238, to: 258 }, // a lens finds each chip
+  lensFix: { from: 281, bubble: 281, orb: 298, cube: 313, to: 336 }, // and comes back to watch each one sealed
   swoosh: { from: 258, to: 270 },
   seals: { bubble: 285, orb: 300, cube: 315 }, // each bot's seams draw in white over a beat
   sealFrames: 15,
@@ -146,9 +147,10 @@ export const SFX = {
   zoom: EVENTS.eyeZoom.from,
   slashes: Object.values(EVENTS.hits).map((h) => h - 4),
   hits: Object.values(EVENTS.hits),
-  chipTicks: Object.values(EVENTS.hits).flatMap((h) => [h + 5, h + 8]), // the chips land
+  chipTicks: [EVENTS.hits.cube + 5], // the cube's chips land on the floor (the others vanish mid-air)
   chipClicks: Object.values(EVENTS.seals).map((s) => s + 2), // each chip snaps back before the seam pours
   locks: [EVENTS.lens.bubble, EVENTS.lens.cube, EVENTS.lens.orb],
+  fixLocks: [EVENTS.lensFix.bubble, EVENTS.lensFix.orb, EVENTS.lensFix.cube],
   swoosh: EVENTS.swoosh.from,
   sealZips: Object.values(EVENTS.seals),
   sealDings: Object.values(EVENTS.seals).map((s) => s + EVENTS.sealFrames),
@@ -165,6 +167,6 @@ export const SFX = {
   irisClose: EVENTS.irisClose.from,
 };
 
-// out/cover.png: the strike, cracks glowing, without its words.
-export const COVER_FRAME = 206;
+// out/cover.png: the cheer after the fix, every bot wearing its white bolt badge, without its words.
+export const COVER_FRAME = 352;
 
