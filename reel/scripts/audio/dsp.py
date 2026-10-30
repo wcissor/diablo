@@ -386,8 +386,9 @@ class Bus:
     Every signal gets a raised-cosine fade over its last 10 ms (`fade_ms`) so a
     buffer end can never click, and every signal that ends inside the bus is
     checked: if it is still above TAIL_FLOOR_DB (re its own peak) where its
-    buffer ends it was cut off while ringing, and it is logged in `cut_tails`
-    (unless `cut_ok`: a deliberate cut, e.g. choked by the pre-strike silence)."""
+    buffer ends it was cut off while ringing, and it is logged in `cut_tails`.
+    `cut_ok` marks a sound that ends where it is meant to: its own envelope
+    closes to zero at the buffer end, or the pre-strike silence chokes it."""
 
     def __init__(self, n: int, name: str = 'bus'):
         self.n = n

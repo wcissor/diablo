@@ -369,7 +369,8 @@ export const shot4 = (f: number): SceneState => {
 const sealedState = (f: number, k: BotKind): CrackState => ({ ...strikeState(SHOTS[3].to, k), warm: 0, weak: 0, pulseFrame: f });
 
 const flickHand = (f: number): HandProps => {
-  const hover = { side: 'right' as const, x: 800, y: 700, rot: 24, spread: 0.5, curl: 0.3 };
+  // hovering up right: claws hooked above the orb, clear of his eyes, the words and the rail
+  const hover = { side: 'right' as const, x: 810, y: 690, rot: -10, spread: 0.5, curl: 0.7 };
   const h = hairlines();
   // flick 1 (orb): sweep the lead tip across the crack in 6 frames
   const k1 = invLerp(EVENTS.crack1.flick - 5, EVENTS.crack1.flick + EVENTS.crack1.sealFrames + 6, f);

@@ -24,8 +24,8 @@ export const STRIKE_RIGHT: HandPose = { side: 'right', x: 823.78, y: 770.32, rot
 export const CUBE_TAP: Pt = { x: BOTS.cube.cx - 8, y: 950 };
 
 // Hover poses (shot 2 end, shot 3 start): high on either side, clear of his horns (no words yet).
-export const HOVER_LEFT: HandPose = { side: 'left', x: STRIKE_LEFT.x - 5, y: STRIKE_LEFT.y - 240, rot: 6, spread: 0.8, curl: 0.1 };
-export const HOVER_RIGHT: HandPose = { side: 'right', x: STRIKE_RIGHT.x - 12, y: STRIKE_RIGHT.y - 240, rot: -6, spread: 0.8, curl: 0.1 };
+export const HOVER_LEFT: HandPose = { side: 'left', x: STRIKE_LEFT.x - 5, y: STRIKE_LEFT.y - 240, rot: 10, spread: 0.8, curl: 0.1 };
+export const HOVER_RIGHT: HandPose = { side: 'right', x: STRIKE_RIGHT.x - 18, y: STRIKE_RIGHT.y - 240, rot: -10, spread: 0.8, curl: 0.1 };
 
 // The tail rests behind Diablo's left side, then its point taps the cube.
 export const TAIL_REST: TailCrescentPose = { x: 250, y: 880, rot: 10, scale: 1.0 };

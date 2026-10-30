@@ -5,7 +5,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { DURATION, SHOTS } from '../src/config';
+import { DURATION, EVENTS, SHOTS } from '../src/config';
 import { CAMERA_ORIGIN, RIGHT_RAIL, SAFE, WORDS } from '../src/geometry';
 import { CRESCENT_PATH, HEAD_PATH } from '../src/logo';
 import { STATE_FNS } from '../src/shots/shots';
@@ -108,6 +108,20 @@ for (let f = 0; f < DURATION; f++) {
       flag('safe-claws', `hand-${h.side}`, f, Math.max(SAFE.x0 - t.x, t.x - SAFE.x1, SAFE.y0 - t.y, t.y - SAFE.y1));
     }
   }
+  // His eyes do the acting: no hand over them (a quality check, not a gate),
+  // except during the two flicks, when the claw passes the crack he is looking at.
+  const flicking =
+    (f >= EVENTS.crack1.flick - 5 && f <= EVENTS.crack1.flick + EVENTS.crack1.sealFrames + 6) ||
+    (f >= EVENTS.crack2.at - 3 && f <= EVENTS.crack2.at + EVENTS.crack2.sealFrames + 4);
+  if (s.head && !s.head.eyesOnly && !flicking) {
+    for (const h of s.hands ?? []) {
+      const b = handBounds(h);
+      for (const e of eyes) {
+        const covered = e.x + 18 > b.x0 && e.x - 18 < b.x1 && e.y + 44 > b.y0 && e.y - 44 < b.y1;
+        if (covered) flag('eyes-clear', `hand-${h.side}`, f, 1);
+      }
+    }
+  }
   // Right rail (x > 936 from y 800 down): no action in it.
   for (const part of parts) {
     const inRail = part.pts.filter((p) => p.y > RIGHT_RAIL.y0);
@@ -139,5 +153,5 @@ const summary = [...groups.entries()].map(([key, vs]) => {
 const file = path.join(__dirname, '..', 'out', 'qa', 'layout.json');
 fs.mkdirSync(path.dirname(file), { recursive: true });
 fs.writeFileSync(file, JSON.stringify({ checkedFrames: DURATION, violations: summary }, null, 2));
-if (!summary.length) console.log('layout: PASS — every frame inside the safe area, words 40 px clear, right rail empty');
+if (!summary.length) console.log('layout: PASS — every frame inside the safe area, words 40 px clear, right rail empty, eyes clear of the hands');
 else for (const g of summary) console.log(`layout: FAIL ${g.key}: ${g.frames} frames, worst ${g.worst} px, frames ${g.ranges.join(', ')}`);
