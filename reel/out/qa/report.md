@@ -1,6 +1,13 @@
-# Diablo intro reel: checks on this cut
+# Diablo intro reel: checks on this cut (28 s)
 
-This round answers the user's request: "make the ai bots better and how they get hurt too … looks too artificial … don't make really hurt, make it in a cool way". Only the bots and how they are hurt and fixed changed (plus the small fixes reviewers asked for along the way). The rest of the approved cut is untouched.
+The latest request: "So cool but lets add more scenes like make it lil longer". The reel grows from 20 s to 28 s with two new scenes on the same 120 BPM grid:
+
+- **"Again? / Not a scratch."** (12.5–16.5 s). Diablo slashes the fixed bots a second time. A white shield pops round each bot and the blade shatters on it.
+- **"Every model. / Every update."** (19.5–23.5 s). The camera pulls back to a 5×5 crowd of fixed bots, which ripples in and does a wave.
+
+Frames 0–374 are unchanged. The "AI that evolves AI" beat and the end card move later.
+
+The round before that answered: "make the ai bots better and how they get hurted too … looks too artificial … don't make really hurted make it in cool way". That round redesigned the bots and changed how they are hurt and fixed.
 
 The stills are in `stills/` and `contact-sheet.png`.
 
@@ -68,16 +75,16 @@ That blocker and the useful notes were fixed:
 
 | Check | Result | What was measured |
 | --- | --- | --- |
-| File | PASS | `diablo-intro-20s.mp4`: H.264 High yuv420p, 1080×1920, 30 fps, 600 frames, 20.0 s. AAC 48 kHz stereo, faststart. |
-| Safe area and right rail | PASS | `scripts/check-layout.ts` checks all 600 frames from the timeline: words, bots (their contract box), the lens, the mark and the end card. Everything stays inside x 120–936 and y 288–1248, nothing enters the right rail, and the words stay at least 40 px above the bots. |
+| File | PASS | `diablo-intro-28s.mp4`: H.264 High yuv420p, 1080×1920, 30 fps, 840 frames, 28.0 s. AAC 48 kHz stereo, faststart. |
+| Safe area and right rail | PASS | `scripts/check-layout.ts` checks all 840 frames from the timeline: words, bots (their contract box), the crowd, the shields, the lens, the mark and the end card. Everything stays inside x 120–936 and y 288–1248, nothing enters the right rail, and the words stay at least 40 px above the bots. |
 | Words | PASS | OCR on frames 90, 250, 360, 445 and 570 reads every line ("AI" comes back as "Al", the usual I/l confusion in sans-serif type). At most 4 words are on screen at once. |
 | Not technical | PASS (by eye) | No charts, numbers, UI or code. No letters or digits on the bots. |
 | Tone of the hurt | PASS (reviewers) | A white swipe, a wince, a double-take and a chipped lightning notch. No blood, wounds or red damage. Fixed into a white bolt badge. |
 | Palette | PASS | White, maroon, night, porcelain and ember, plus mixes of them (the bots' blush). No gold. |
-| Loop | PASS | Frames 0 and 597–599 are pure black. |
-| Sound | PASS | −18.0 LUFS integrated, −2.3 dBFS peak on the encoded file. The hits are a digital zap, not a crunch. There is a click as each chip snaps back and a blip for each lens stop. Silent from frame 597. |
-| Cuts on the beat | PASS | The colour beats at frames 405, 435, 450 and 465 each land on a transient (16–103× the median onset strength). |
-| Rendering | PASS | SwiftShader GL; no dropped tiles in any frame from 10 to 584. |
+| Loop | PASS | Frames 0 and 837–839 are pure black. |
+| Sound | PASS | −18.1 LUFS integrated, −2.6 dBFS peak on the encoded file. The score runs 14 bars. The hits are a digital zap, not a crunch. There is a click as each chip snaps back and a blip for each lens stop. The new scenes add a shield hum, a deflect ting and shatter, crowd pops and the wave. Silent from frame 837. |
+| Cuts on the beat | PASS | The colour beats at frames 525, 555, 570, 585 and 705 each land on a transient (18–107× the median onset strength). |
+| Rendering | PASS | SwiftShader GL; no dropped tiles in any frame from 10 to 824. |
 | Voice cut | SKIPPED | No text-to-speech source is reachable from this machine. `captions.srt` is written. |
 
 ## Final verification
