@@ -4,7 +4,7 @@
 import React from 'react';
 import { easeInCubic, easeOutBack, easeOutCubic } from '../lib/anim';
 import type { Pt } from '../lib/anim';
-import type { Arc, Circle, RingView, SparkView } from './timeline';
+import type { Arc, Circle, RingView, ShieldView, SparkView } from './timeline';
 
 // Rings that burst out from a point and thin away (16 frames each, 3 apart).
 export const Rings: React.FC<{ f: number; ring: RingView }> = ({ f, ring }) => {
@@ -79,6 +79,36 @@ export const Blade: React.FC<{ arc: Arc; a: number; b: number; width: number; co
   const n = (q: Pt) => `${q.x.toFixed(1)} ${q.y.toFixed(1)}`;
   const r = (width / 2).toFixed(1);
   return <path d={`M${left.map(n).join('L')}A${r} ${r} 0 0 0 ${n(right[N])}L${right.reverse().map(n).join('L')}Z`} fill={color} />;
+};
+
+// A bot's shield as the second blade hits it: a white ring with a faint fill,
+// a bright arc where the blade lands, and the blade shattering into white
+// shards that fly back off it.
+export const Shield: React.FC<{ s: ShieldView }> = ({ s }) => {
+  const o = 1 - Math.min(1, Math.max(0, (s.t - 14) / 10));
+  if (o <= 0 || s.r < 1) return null;
+  const flash = s.t >= 0 ? Math.max(0, 1 - s.t / 7) : 0;
+  const a0 = Math.atan2(s.away.y, s.away.x);
+  const at = (ang: number, r: number): Pt => ({ x: s.x + Math.cos(ang) * r, y: s.y + Math.sin(ang) * r });
+  const n = (q: Pt) => `${q.x.toFixed(1)} ${q.y.toFixed(1)}`;
+  const shardT = s.t >= 0 ? s.t / 10 : -1;
+  return (
+    <g>
+      <circle cx={s.x} cy={s.y} r={s.r} fill="#fff" fillOpacity={0.1 * o} stroke="#fff" strokeOpacity={o} strokeWidth={7} />
+      {flash > 0 ? (
+        <path d={`M${n(at(a0 - 0.55, s.r))}A${s.r} ${s.r} 0 0 1 ${n(at(a0 + 0.55, s.r))}`} fill="none" stroke="#fff" strokeWidth={7 + 12 * flash} strokeLinecap="round" />
+      ) : null}
+      {shardT >= 0 && shardT < 1
+        ? [-0.9, -0.5, -0.15, 0.2, 0.55, 0.95].map((da, i) => {
+            const d = 18 + (60 + 14 * (i % 3)) * easeOutCubic(shardT);
+            const p = { x: s.hit.x + Math.cos(a0 + da) * d, y: s.hit.y + Math.sin(a0 + da) * d + 30 * shardT * shardT };
+            const sz = (7 - (i % 2) * 2.5) * (1 - shardT);
+            const rot = (a0 + da) * 57.3 + 160 * shardT * (i % 2 ? 1 : -1);
+            return <path key={i} d={`M${-sz} ${sz * 0.6}L${sz} 0L${-sz} ${-sz * 0.6}Z`} fill="#fff" transform={`translate(${n(p)}) rotate(${rot.toFixed(1)})`} />;
+          })
+        : null}
+    </g>
+  );
 };
 
 // The whole frame minus a circle (fill it with fillRule evenodd).

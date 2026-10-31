@@ -1,15 +1,17 @@
 # Diablo — intro reel
 
-A 20-second vertical intro reel for **Diablo — AI that evolves AI**, for
+A 28-second vertical intro reel for **Diablo — AI that evolves AI**, for
 Instagram Reels and TikTok, in a fast flat motion-graphics style on white and
 maroon at 120 BPM. Three flat mascot bots (a chat bubble, a TV-head robot and a
 hovering orb) pop in and look fine; Diablo's mark drops in and the camera dives
 into his eye. Each of his three slashes lands as a white swipe with a quick wince
 and a two-frame glitch, and chips a lightning-bolt notch out of a bot (a chipped
 toy, never a wound). A lens finds each chip, white seams pour into the notches
-and leave white bolt badges, colour beats carry "AI that evolves AI", and
-everything collapses into a dot that draws his crescent for the end card.
-Every frame is vector art drawn in code; every sound is synthesised in code.
+and leave white bolt badges. "Again?": Diablo slashes the fixed bots a second
+time and white shields shatter every blade ("Not a scratch."). Colour beats
+carry "AI that evolves AI", the camera pulls back to a whole crowd of fixed bots
+("Every model. Every update."), and the crowd collapses into a dot that draws
+his crescent for the end card.
 
 This is its own Remotion project (React + TypeScript), separate from the app in
 the repository root.
@@ -18,8 +20,8 @@ the repository root.
 
 | File | What it is |
 | --- | --- |
-| `out/diablo-intro-20s.mp4` | The main post: score, sound and words, no voice. 1080×1920, 30 fps, exactly 600 frames, H.264 High, AAC 48 kHz. |
-| `out/diablo-intro-20s-vo.mp4` | The same picture with a generated voice. Only made when a voice source works (see below). |
+| `out/diablo-intro-28s.mp4` | The main post: score, sound and words, no voice. 28 s, 1080×1920, 30 fps, exactly 840 frames, H.264 High, AAC 48 kHz. |
+| `out/diablo-intro-28s-vo.mp4` | The same picture with a generated voice. Only made when a voice source works (see below). |
 | `out/cover.png` | 1080×1920 cover: the three cracked bots at 6.9 s with the name. |
 | `out/captions.srt` | The on-screen lines with their times, for the voice cut. |
 | `out/qa/report.md` | The checks run on this cut, with what was measured. |

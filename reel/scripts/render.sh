@@ -23,18 +23,21 @@ if [ "$SKIP_FRAMES" = 0 ]; then
     --image-sequence-pattern='frame-[frame].[ext]' --concurrency=4
 fi
 
-# Both cuts: 1080×1920, 30 fps, exactly 600 frames, H.264 High yuv420p, AAC 48 kHz 192 kbps.
+# Both cuts: 1080×1920, 30 fps, exactly DURATION frames (src/config.ts), H.264 High yuv420p, AAC 48 kHz 192 kbps.
+FRAMES=$(node -e "console.log(require('./build/config.json').DURATION)")
+SECONDS_LONG=$(node -e "const c=require('./build/config.json'); console.log(c.DURATION / c.FPS)")
+NAME="diablo-intro-${SECONDS_LONG}s" # e.g. diablo-intro-28s
 encode() {
   ffmpeg -y -hide_banner -loglevel error -framerate 30 -i out/frames/frame-%03d.png -i "$1" \
     -map 0:v:0 -map 1:a:0 -c:v libx264 -profile:v high -pix_fmt yuv420p -preset slow \
-    -crf 18 -maxrate 14M -bufsize 28M -r 30 -frames:v 600 \
-    -c:a aac -ar 48000 -b:a 192k -t 20 -movflags +faststart "$2"
+    -crf 18 -maxrate 14M -bufsize 28M -r 30 -frames:v "$FRAMES" \
+    -c:a aac -ar 48000 -b:a 192k -t "$SECONDS_LONG" -movflags +faststart "$2"
 }
-encode audio/build/mix-main.wav out/diablo-intro-20s.mp4
+encode audio/build/mix-main.wav "out/$NAME.mp4"
 if [ -f audio/build/mix-vo.wav ]; then
-  encode audio/build/mix-vo.wav out/diablo-intro-20s-vo.mp4
+  encode audio/build/mix-vo.wav "out/$NAME-vo.mp4"
 else
-  rm -f out/diablo-intro-20s-vo.mp4
+  rm -f "out/$NAME-vo.mp4"
   echo "voice cut skipped: see audio/build/voice-status.json"
 fi
 

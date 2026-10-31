@@ -16,8 +16,8 @@ const ROW = { scale: 1.25, feet: 1420, x: { bubble: 215, cube: 540, orb: 865 } }
 const HIT_AGO = 300; // frames since the hit: settled, badge on
 const SEALED_AGO = 20; // frames since the seal: past the celebration, before the first idle glint
 
-// The reel's own last line, "AI that evolves AI.", as the cover's hook.
-const TAGLINE = SHOTS.find((s) => s.id === 5)!.words.join(' ');
+// The reel's headline, "AI that evolves AI.", as the cover's hook.
+const TAGLINE = SHOTS.find((s) => s.big)!.words.join(' ');
 
 export const Cover: React.FC = () => {
   useFonts();

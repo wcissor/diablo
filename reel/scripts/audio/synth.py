@@ -24,10 +24,10 @@ BEAT = cfg['BEAT']
 E, X = cfg['EVENTS'], cfg['SFX']
 rng = np.random.default_rng(20)
 
-# One chord per bar (2 s): i–VI–iv–V, i–III–VI–VII, i, i.
-CHORDS = [[62, 65, 69], [58, 62, 65], [55, 58, 62], [57, 61, 64], [62, 65, 69],
-          [53, 57, 60], [58, 62, 65], [60, 64, 67], [62, 65, 69], [62, 65, 69]]
-ROOTS = [38, 34, 31, 33, 38, 41, 34, 36, 38, 38]
+# One chord per bar (2 s): i–VI–iv–V, i–III–VI–VII, i–VI–III–VII, i, i.
+DM, BB, GM, A, F, CM = [62, 65, 69], [58, 62, 65], [55, 58, 62], [57, 61, 64], [53, 57, 60], [60, 64, 67]
+CHORDS = [DM, BB, GM, A, DM, F, BB, CM, DM, BB, F, CM, DM, DM]
+ROOTS = [38, 34, 31, 33, 38, 41, 34, 36, 38, 34, 41, 36, 38, 38]
 BAR = 4 * BEAT
 GROOVE = [(165, E['wipeOut']['from']), (E['colourBeats'][0], E['collapse']['from'])]  # the full beat
 
@@ -94,7 +94,7 @@ def in_groove(f):
 
 
 def chord_at(f):
-    return CHORDS[min(9, int(f // BAR))]
+    return CHORDS[min(len(CHORDS) - 1, int(f // BAR))]
 
 
 # ---------------------------------------------------------------- drums ---
@@ -247,6 +247,26 @@ def zip_(frames):
     return x * (0.6 + 0.4 * grit) * np.sin(np.pi * t) ** 0.8
 
 
+def ting():
+    """A blade glancing off a shield: a bright metallic ping and a glassy shatter."""
+    n = int(0.9 * SR)
+    x = bell(2600, n, 0.28) + 0.5 * bell(3900, n, 0.18)
+    x += 0.5 * filt(rng.standard_normal(n), 'high', 5000) * decay(n, 0.02, 0.0004)
+    for j in range(6):  # the shards
+        a = int((0.02 + 0.025 * j) * SR)
+        p = pop(4200 - 300 * j, 3000 - 200 * j, 0.025)
+        x[a:a + len(p)] += 0.25 * p
+    return x
+
+
+def whum():
+    """A shield popping up: a quick rising hum."""
+    n = int(0.22 * SR)
+    t = tv(n)
+    f = 150 + 160 * np.minimum(1, t / 0.08)
+    return np.sin(2 * np.pi * np.cumsum(f) / SR) * np.sin(np.pi * np.minimum(1, t / 0.22)) ** 1.5
+
+
 def boing():
     n = int(0.25 * SR)
     t = tv(n)
@@ -288,7 +308,7 @@ def build_score():
     for f8 in np.arange(165, cfg.frames, BEAT / 2):
         if not in_groove(f8):
             continue
-        root = ROOTS[min(9, int(f8 // BAR))]
+        root = ROOTS[min(len(ROOTS) - 1, int(f8 // BAR))]
         m = root + (12 if int(round(f8 / (BEAT / 2))) % 2 else 0)
         add(bass, bass_note(m, int(0.24 * SR)), f8, 0.55)
     score += bass * duck[:, None]
@@ -303,7 +323,7 @@ def build_score():
     send += arp * 0.4
     # Dark pad under Diablo's arrival; stabs on the hits and colour beats.
     add(score, pad([43, 50, 55], int(1.6 * SR), 0.05, 900), E['drop']['land'], 0.35)
-    for f in cfg['BEATS']['hits'] + E['colourBeats']:
+    for f in cfg['BEATS']['hits'] + cfg['BEATS']['retestHits'] + E['colourBeats']:
         add(score, stab([n - 12 for n in chord_at(f)] + [chord_at(f)[0]]), f, 0.45)
         add(send, stab(chord_at(f)), f, 0.15)
     # The logo sting: a wide D minor (add 9) pad, a bell and a sub, ringing out.
@@ -374,6 +394,23 @@ def build_sfx():
     add(sfx, pop(250, 650, 0.09), X['headPop'], 0.5)
     add(sfx, shing(), cfg['EVENTS']['eyesOpenEnd'], 0.2)
     add(sfx, tick(), X['blink'], 0.2)
+    # Again? Not a scratch: the blades come back and glance off the shields
+    for f, pan in zip(X['retestSlashes'], [-0.5, 0.5, 0.1]):
+        add(sfx, whoosh(5, 2000, 8000, 0.6, 2.0), f, 0.4, pan)
+    for f, pan in zip(X['shields'], [-0.45, 0.45, 0.1]):
+        add(sfx, whum(), f, 0.3, pan)
+    for f, pan in zip(X['deflects'], [-0.45, 0.45, 0.1]):
+        add(sfx, ting(), f, 0.45, pan)
+        add(send, ting(), f, 0.3, pan)
+    for f in X['flex']:
+        add(sfx, boing(), f, 0.16)
+    # Every model, every update: the camera pulls back and the crowd ripples in
+    add(sfx, whoosh(15, 3500, 250, 1.0, 1.3), X['crowdZoom'], 0.4)
+    for f in X['crowdPops']:
+        for j in range(3):
+            add(sfx, pop(420 + 90 * j, 900 + 120 * j, 0.06), f + j, 0.15, rng.uniform(-0.7, 0.7))
+    for f in X['wave']:
+        add(sfx, whoosh(8, 800, 3000, 1.0, 1.2), f, 0.12, rng.uniform(-0.3, 0.3))
     add(sfx, whoosh(12, 3000, 200, 1.0, 1.4), X['irisClose'], 0.25)
     return sfx, send
 

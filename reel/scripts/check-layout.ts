@@ -53,6 +53,13 @@ for (let f = 0; f < DURATION; f++) {
       botBoxes.push({ who: b.kind, x0: x + BOT_BOX.x0 * s, x1: x + BOT_BOX.x1 * s, y0: feet + (BOT_BOX.y0 * b.squash - b.lift) * s, y1: feet });
     }
   boxes.push(...botBoxes);
+  // the crowd (its contract boxes, popped, squashed and lifted about the feet)
+  if (T.collapseAt(f) >= 1)
+    for (const b of T.crowdAt(f)) {
+      const s = b.scale;
+      botBoxes.push({ who: `crowd ${b.kind}`, x0: b.x + BOT_BOX.x0 * s, x1: b.x + BOT_BOX.x1 * s, y0: b.feet + (BOT_BOX.y0 * b.squash - b.lift) * s, y1: b.feet });
+    }
+  for (const sh of T.shieldsAt(f)) boxes.push({ who: 'shield', x0: sh.x - sh.r - 4, x1: sh.x + sh.r + 4, y0: sh.y - sh.r - 4, y1: sh.y + sh.r + 4 });
   const lens = T.lensAt(f);
   if (lens) {
     const r = lens.r * lens.snap + 28;

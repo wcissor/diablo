@@ -9,7 +9,7 @@ import { BOTS, STAGE_Y } from '../geometry';
 import { C, FONT } from '../theme';
 import { ConceptBotImpl as Bot } from '../bots/Bot';
 import * as T from './timeline';
-import { Blade, holeD, Ribbon, Rings, Sparkle } from './kit';
+import { Blade, holeD, Ribbon, Rings, Shield, Sparkle } from './kit';
 import { FlatMark } from './Mark';
 import { Kinetic } from './Type';
 
@@ -23,6 +23,17 @@ const BotsLayer: React.FC<{ f: number; bots: T.BotView[]; bg: 'white' | 'maroon'
   <g transform={ROW}>
     {bots.map((b) => (
       <g key={b.kind} transform={`translate(${BOTS[b.kind].cx} ${STAGE_Y}) scale(${b.scale}) rotate(${b.lean}) scale(1 ${b.squash})`}>
+        <Bot kind={b.kind} frame={f} bg={bg} mood={b.mood} look={b.look} blink={b.blink} hitT={b.hitT} seal={b.seal} sealT={b.sealT} lift={b.lift} />
+      </g>
+    ))}
+  </g>
+);
+
+// The crowd: every bot placed by its feet on screen, each with its badge.
+const CrowdLayer: React.FC<{ f: number; bots: T.CrowdBot[]; bg: 'white' | 'maroon' }> = ({ f, bots, bg }) => (
+  <g>
+    {bots.map((b, i) => (
+      <g key={i} transform={`translate(${b.x} ${b.feet}) scale(${b.scale}) rotate(${b.lean}) scale(1 ${b.squash})`}>
         <Bot kind={b.kind} frame={f} bg={bg} mood={b.mood} look={b.look} blink={b.blink} hitT={b.hitT} seal={b.seal} sealT={b.sealT} lift={b.lift} />
       </g>
     ))}
@@ -87,11 +98,18 @@ export const Reel: React.FC<{ f: number; hideWords?: boolean }> = ({ f, hideWord
           ))}
           <g transform={shrink}>
             <BotsLayer f={f} bots={bots} bg={bg === C.white ? 'white' : 'maroon'} />
+            <CrowdLayer f={f} bots={T.crowdAt(f)} bg={bg === C.white ? 'white' : 'maroon'} />
             <g transform={ROW}>
               {T.KINDS.map((k) => (
                 <Blade key={k} arc={T.SLASH[k]} {...T.slashAt(f, k)} width={30} color={C.white} />
               ))}
+              {T.KINDS.map((k) => (
+                <Blade key={`again-${k}`} arc={T.RETEST_ARC[k]} {...T.retestSlashAt(f, k)} width={30} color={C.white} />
+              ))}
             </g>
+            {T.shieldsAt(f).map((s, i) => (
+              <Shield key={i} s={s} />
+            ))}
           </g>
           {lens ? <Lens f={f} lens={lens} bots={bots} /> : null}
           {T.SPARKS.map((s, i) => {

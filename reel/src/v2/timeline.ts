@@ -33,15 +33,16 @@ const hop = (f: number, t0: number, dur = 10, h = 34) => {
 
 /* ───────────── Colour ───────────── */
 
+// What each colour beat switches the background to.
+const BEAT_BG = [C.maroon, C.night, C.maroon, C.night, C.white];
 export const bgAt = (f: number): string => {
   if (f < EVENTS.wipeIn.to) return C.white;
   if (f < EVENTS.wipeOut.to) return C.maroon;
-  const [a, b, c, d] = EVENTS.colourBeats;
-  if (f < a) return C.white;
-  if (f < b) return C.maroon;
-  if (f < c) return C.night;
-  if (f < d) return C.maroon;
-  return C.white;
+  let bg: string = C.white;
+  EVENTS.colourBeats.forEach((b, i) => {
+    if (f >= b) bg = BEAT_BG[i];
+  });
+  return bg;
 };
 export const inkOn = (bg: string) => (bg === C.white ? C.maroon : C.white);
 
@@ -94,17 +95,18 @@ const botAt = (f: number, k: BotKind, i: number): BotView | null => {
       mood: worry > 0.5 ? 'worried' : 'happy',
     };
   }
-  // Shots 3-4, on maroon: the slash, the chip, the white seam, the cheer.
+  // Shots 3-5, on maroon: the slash, the chip, the white seam, the cheer, then
+  // the re-test: a proud nod as each shield takes the blade, and a flex on the beat.
   if (f >= EVENTS.botsBack && f < EVENTS.wipeOut.to) {
     const t0 = EVENTS.botsBack + 2 * i;
     if (f < t0) return null;
     const hit = HIT[k];
     const done = sealEnd(k);
-    const hops = [done, ...EVENTS.cheer.map((c) => c + 2 * i)];
+    const hops = [done, ...EVENTS.cheer.map((c) => c + 2 * i), ...EVENTS.retest.flex.map((c) => c + 2 * i)];
     return {
       kind: k,
       scale: spring(f - t0),
-      squash: hops.reduce((a, c) => a * landing(f, c + 12, 0.12), 1),
+      squash: hops.reduce((a, c) => a * landing(f, c + 12, 0.12), 1) * landing(f, EVENTS.retest.hits[k], 0.06),
       lean: 0, // the bot plays its own hit-stop squash and tilt
       lift: hops.reduce((a, c) => a + hop(f, c, 12, 40), 0),
       look: f < hit ? { x: 0.5 * Math.sin(f * 0.7 + i * 2), y: -0.4 } : { x: 0, y: -0.3 },
@@ -115,8 +117,8 @@ const botAt = (f: number, k: BotKind, i: number): BotView | null => {
       sealT: f >= done ? f - done : undefined,
     };
   }
-  // Shot 5: back, sealed and proud, bopping on the colour beats.
-  if (f >= EVENTS.botsUp && f < EVENTS.collapse.to) {
+  // Shot 6: back, sealed and proud, bopping on the colour beats (then the crowd takes over).
+  if (f >= EVENTS.botsUp && f < EVENTS.crowd.from) {
     const t0 = EVENTS.botsUp + 4 * i;
     if (f < t0) return null;
     const beats = EVENTS.colourBeats.slice(1, 3).map((b) => b + 2 * i);
@@ -138,8 +140,55 @@ const botAt = (f: number, k: BotKind, i: number): BotView | null => {
 };
 export const botsAt = (f: number): BotView[] => KINDS.flatMap((k, i) => botAt(f, k, i) ?? []);
 
-// Everything shrinks into the dot at the end of shot 5 (1 = full size).
+// Everything shrinks into the dot at the end of shot 7 (1 = full size).
 export const collapseAt = (f: number) => 1 - easeInBack(ramp(f, EVENTS.collapse.from, EVENTS.collapse.to));
+
+/* ───────────── The crowd (every model, every update) ───────────── */
+
+// A bot in the crowd, placed by its feet on screen.
+export interface CrowdBot extends BotView {
+  x: number;
+  feet: number;
+}
+const CROWD = { cols: [240, 390, 540, 690, 840], rows: [720, 838, 956, 1074, 1192], scale: 0.42, mid: 2 };
+// The three land in the middle row, in their order, inside a repeating mix of all three kinds.
+const crowdKind = (r: number, c: number): BotKind => KINDS[(r * 2 + c) % 3];
+export const crowdAt = (f: number): CrowdBot[] => {
+  const C0 = EVENTS.crowd;
+  if (f < C0.from || f >= EVENTS.collapse.to) return [];
+  const out: CrowdBot[] = [];
+  const zoom = ramp(f, C0.from, C0.zoom, easeInOutCubic);
+  CROWD.rows.forEach((rowFeet, r) =>
+    CROWD.cols.forEach((colX, c) => {
+      const trio = r === CROWD.mid && c >= 1 && c <= 3;
+      const kind = trio ? (['bubble', 'cube', 'orb'] as BotKind[])[c - 1] : crowdKind(r, c);
+      // the three glide from their places on the stage into the middle row; the rest ripple in from the centre
+      const t0 = C0.popFrom + 4 * (Math.abs(r - CROWD.mid) + Math.abs(c - 2));
+      if (!trio && f < t0) return;
+      const pop = trio ? 1 : spring(f - t0);
+      const x = trio ? lerp(BOTS[kind].cx, colX, zoom) : colX;
+      const feet = trio ? lerp(STAGE_Y + ROW_DY, rowFeet, zoom) : rowFeet;
+      const size = trio ? lerp(1, CROWD.scale, zoom) : CROWD.scale;
+      const waves = C0.wave.map((w) => w + 2 * c + r);
+      out.push({
+        kind,
+        x,
+        feet,
+        scale: size * pop,
+        squash: (trio ? 1 : landing(f, t0 + 6, 0.12)) * waves.reduce((a, w) => a * landing(f, w + 10, 0.1), 1),
+        lean: 0,
+        lift: waves.reduce((a, w) => a + hop(f, w, 10, 26), 0),
+        look: { x: 0, y: -0.2 },
+        blink: blinkAt(f + 7 * r + 13 * c, kind),
+        mood: 'proud',
+        hitT: f - HIT[kind],
+        seal: 1,
+        sealT: trio ? f - sealEnd(kind) : 60 + ((r * 5 + c * 3) % 40),
+      });
+    }),
+  );
+  return out;
+};
 
 /* ───────────── Dots, slashes, lens ───────────── */
 
@@ -209,6 +258,60 @@ export const slashAt = (f: number, k: BotKind) => ({
   b: ramp(f, HIT[k] - 3, HIT[k], easeOutCubic),
 });
 
+/* ───────────── Again? Not a scratch (the re-test) ───────────── */
+
+const RETEST = EVENTS.retest.hits;
+export const SHIELD_R = 124; // neighbouring shields never touch, and the orb's stays inside the safe area
+// A bot's shield: a circle round its middle (stage coordinates, before ROW_DY).
+const shieldC = (k: BotKind): Pt => ({ x: BOTS[k].cx, y: STAGE_Y - BOT_H / 2 });
+const arcAt = (a: Arc, u: number): Pt => ({
+  x: (1 - u) * (1 - u) * a.p0.x + 2 * (1 - u) * u * a.c.x + u * u * a.p1.x,
+  y: (1 - u) * (1 - u) * a.p0.y + 2 * (1 - u) * u * a.c.y + u * u * a.p1.y,
+});
+// The second blade swings along the same arc from further out (a longer run-up),
+// and stops dead where it meets the shield. The cube's own arc runs in along its
+// chin from the orb's side, so its second blade chops down from above instead.
+const RUN_UP = 130; // px
+const runUp = (a: Arc): Arc => {
+  const l = Math.hypot(a.c.x - a.p0.x, a.c.y - a.p0.y) || 1;
+  return { ...a, p0: { x: a.p0.x - ((a.c.x - a.p0.x) / l) * RUN_UP, y: a.p0.y - ((a.c.y - a.p0.y) / l) * RUN_UP } };
+};
+export const RETEST_ARC: Record<BotKind, Arc> = {
+  bubble: runUp(SLASH.bubble),
+  orb: runUp(SLASH.orb),
+  cube: { p0: { x: 650, y: 770 }, c: { x: 610, y: 860 }, p1: { x: 540, y: 1000 } },
+};
+const SHIELD_U = Object.fromEntries(
+  KINDS.map((k) => {
+    const o = shieldC(k);
+    let u = 0;
+    while (u < 1 && Math.hypot(arcAt(RETEST_ARC[k], u).x - o.x, arcAt(RETEST_ARC[k], u).y - o.y) > SHIELD_R) u += 0.002;
+    return [k, u];
+  }),
+) as Record<BotKind, number>;
+export const retestSlashAt = (f: number, k: BotKind) => ({
+  a: SHIELD_U[k] * ramp(f, RETEST[k] - 1, RETEST[k] + 2, easeInCubic),
+  b: SHIELD_U[k] * ramp(f, RETEST[k] - 4, RETEST[k], easeOutCubic),
+});
+export interface ShieldView {
+  x: number; // centre, on screen
+  y: number;
+  r: number;
+  t: number; // frames since the blade hit it
+  hit: Pt; // where the blade hit, on screen
+  away: Pt; // unit vector from the centre to the hit
+}
+// Each shield pops up as its blade arrives, takes the hit, holds, and fades.
+export const shieldsAt = (f: number): ShieldView[] =>
+  KINDS.flatMap((k) => {
+    const h = RETEST[k];
+    if (f < h - 1 || f > h + 24) return [];
+    const o = shieldC(k);
+    const q = arcAt(RETEST_ARC[k], SHIELD_U[k]);
+    const l = Math.hypot(q.x - o.x, q.y - o.y) || 1;
+    return [{ x: o.x, y: o.y + ROW_DY, r: SHIELD_R * Math.min(1.04, spring(f - (h - 1), 1.8, 0.7)), t: f - h, hit: { x: q.x, y: q.y + ROW_DY }, away: { x: (q.x - o.x) / l, y: (q.y - o.y) / l } }];
+  });
+
 export const flashAt = (f: number) => {
   for (const h of [HIT.bubble, HIT.cube]) {
     if (f === h) return 0.75;
@@ -222,6 +325,9 @@ const SHAKES: [number, number][] = [
   [HIT.bubble, 14],
   [HIT.orb, 11],
   [HIT.cube, 16],
+  [RETEST.bubble, 6],
+  [RETEST.orb, 6],
+  [RETEST.cube, 7],
 ];
 export const shakeAt = (f: number): Pt =>
   SHAKES.reduce(
@@ -345,6 +451,7 @@ export const SPARKS: SparkView[] = [
     return [
       { ...damageScreen(k), t0: sealEnd(k) - 1, size: 56, color: C.white, bot: k }, // a big flash on the new badge
       { x: c.x + 104, y: c.y - 78, t0: sealEnd(k) + 3, size: 22, color: C.white, bot: k },
+      { ...damageScreen(k), t0: EVENTS.retest.hits[k] + 1, size: 34, color: C.white, bot: k }, // the badge glints as its shield holds
     ];
   }),
 ];
@@ -363,7 +470,7 @@ export interface WordsView {
 export const wordsAt = (f: number): WordsView | null => {
   const s = SHOTS.find((x) => f >= x.from && f <= x.to);
   if (!s || !s.words.length) return null;
-  const big = s.id === 5;
+  const big = !!s.big;
   return {
     lines: s.words.map((text, i) => ({ text, at: s.lineIn[i] })),
     out: s.wordsOut,
@@ -371,7 +478,7 @@ export const wordsAt = (f: number): WordsView | null => {
     size: big ? 132 : 108,
     lineH: big ? 140 : 116,
     color: inkOn(bgAt(f)),
-    scale: big ? collapseAt(f) : 1,
+    scale: collapseAt(f),
   };
 };
 
@@ -395,7 +502,7 @@ export interface MarkView {
   shine?: number; // 0..1 a band of light sweeping across the mark (the end card)
 }
 // One sweep of light across the logo while the end card holds.
-const SHINE = { from: 546, to: 562 };
+const SHINE = EVENTS.shine;
 const ARRIVAL = { x: 540, y: 720, h: 640 };
 const FINALE = { x: 540, y: 660, h: 400 };
 export const CRESCENT_TIP: Pt = { x: 512, y: 630 };
